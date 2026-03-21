@@ -1,6 +1,99 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import { COLORS, FONTS, btnPrimary, btnSuccess, btnDanger, pressStyle, card } from '../lib/styles'
+import { COLORS, FONTS, btnPrimary, btnSuccess, btnDanger, btnPink, pressStyle, card } from '../lib/styles'
+
+const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
+
+async function extractTextFromImages(files, apiKey) {
+  const imageContents = await Promise.all(
+    files.map(async (file) => {
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result.split(',')[1])
+        reader.onerror = () => reject(new Error('Errore lettura'))
+        reader.readAsDataURL(file)
+      })
+      return {
+        type: 'image',
+        source: { type: 'base64', media_type: file.type || 'image/jpeg', data: base64 }
+      }
+    })
+  )
+
+  const response = await fetch(ANTHROPIC_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 4000,
+      messages: [{
+        role: 'user',
+        content: [
+          ...imageContents,
+          {
+            type: 'text',
+            text: `Estrai TUTTO il testo presente in queste immagini di pagine di un libro scolastico. 
+Trascrivi il contenuto fedelmente, mantenendo la struttura (titoli, paragrafi, elenchi).
+NON aggiungere commenti o interpretazioni, solo il testo presente nelle immagini.
+Se ci sono immagini o grafici, descrivi brevemente cosa rappresentano tra parentesi quadre.
+Rispondi SOLO con il testo estratto.`
+          }
+        ]
+      }]
+    })
+  })
+
+  const data = await response.json()
+  return data.content.filter(i => i.type === 'text').map(i => i.text).join('')
+}
+
+async function extractTextFromPDF(file, apiKey) {
+  const base64 = await new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result.split(',')[1])
+    reader.onerror = () => reject(new Error('Errore lettura'))
+    reader.readAsDataURL(file)
+  })
+
+  const response = await fetch(ANTHROPIC_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 4000,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'document',
+            source: { type: 'base64', media_type: 'application/pdf', data: base64 }
+          },
+          {
+            type: 'text',
+            text: `Estrai TUTTO il testo presente in questo PDF di pagine di un libro scolastico.
+Trascrivi il contenuto fedelmente, mantenendo la struttura (titoli, paragrafi, elenchi).
+NON aggiungere commenti o interpretazioni, solo il testo presente nel documento.
+Se ci sono immagini o grafici, descrivi brevemente cosa rappresentano tra parentesi quadre.
+Rispondi SOLO con il testo estratto.`
+          }
+        ]
+      }]
+    })
+  })
+
+  const data = await response.json()
+  return data.content.filter(i => i.type === 'text').map(i => i.text).join('')
+}
 
 function AdminUsers() {
   const [users, setUsers] = useState([])
@@ -112,7 +205,6 @@ function AdminSubjects() {
       <h3 style={{ fontFamily: FONTS.heading, fontSize: '1.1rem', color: COLORS.dark, marginBottom: '0.75rem' }}>
         📚 Materie
       </h3>
-
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
           {icons.map(ic => (
@@ -129,7 +221,6 @@ function AdminSubjects() {
           <button onClick={addSubject} style={{ ...btnSuccess, padding: '0.5rem 1rem', fontSize: '0.85rem' }}>+ Aggiungi</button>
         </div>
       </div>
-
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
         {subjects.map(s => (
           <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.75rem', background: COLORS.bgPurple, borderRadius: '10px', border: `1px solid rgba(108,92,231,0.1)` }}>
@@ -147,16 +238,55 @@ function AdminContents() {
   const [subjects, setSubjects] = useState([])
   const [contents, setContents] = useState([])
   const [form, setForm] = useState({ subject_id: '', school_year: '1', section: '', title: '', page_start: '', page_end: '', content_text: '' })
+  const [uploadMode, setUploadMode] = useState('text')
+  const [uploadFiles, setUploadFiles] = useState([])
+  const [extracting, setExtracting] = useState(false)
+  const [extractMsg, setExtractMsg] = useState('')
+  const fileRef = useRef(null)
+  const pdfRef = useRef(null)
 
-  useEffect(() => {
-    loadData()
-  }, [])
+  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY
+
+  useEffect(() => { loadData() }, [])
 
   const loadData = async () => {
     const { data: subs } = await supabase.from('subjects').select('*').order('name')
     const { data: conts } = await supabase.from('contents').select('*, subjects(name, icon)').order('school_year').order('title')
     setSubjects(subs || [])
     setContents(conts || [])
+  }
+
+  const handleImageFiles = (files) => {
+    const newFiles = Array.from(files).filter(f => f.type.startsWith('image/'))
+    setUploadFiles(prev => [...prev, ...newFiles])
+  }
+
+  const handlePDFFile = (files) => {
+    const pdf = Array.from(files).find(f => f.type === 'application/pdf')
+    if (pdf) setUploadFiles([pdf])
+  }
+
+  const extractText = async () => {
+    if (uploadFiles.length === 0) return
+    setExtracting(true)
+    setExtractMsg('🧠 Sto leggendo le pagine con l\'AI...')
+
+    try {
+      let text = ''
+      if (uploadFiles[0].type === 'application/pdf') {
+        setExtractMsg('📄 Analizzo il PDF...')
+        text = await extractTextFromPDF(uploadFiles[0], apiKey)
+      } else {
+        setExtractMsg(`📸 Analizzo ${uploadFiles.length} foto...`)
+        text = await extractTextFromImages(uploadFiles, apiKey)
+      }
+      setForm(prev => ({ ...prev, content_text: text }))
+      setExtractMsg('✅ Testo estratto! Controlla e salva.')
+    } catch (err) {
+      console.error(err)
+      setExtractMsg('❌ Errore nell\'estrazione. Riprova!')
+    }
+    setExtracting(false)
   }
 
   const addContent = async () => {
@@ -171,6 +301,9 @@ function AdminContents() {
       content_text: form.content_text,
     })
     setForm({ subject_id: '', school_year: '1', section: '', title: '', page_start: '', page_end: '', content_text: '' })
+    setUploadFiles([])
+    setExtractMsg('')
+    setUploadMode('text')
     loadData()
   }
 
@@ -180,13 +313,22 @@ function AdminContents() {
     loadData()
   }
 
+  const removeFile = (index) => {
+    setUploadFiles(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const uploadModes = [
+    { id: 'text', label: '✏️ Testo' },
+    { id: 'photo', label: '📷 Foto' },
+    { id: 'pdf', label: '📄 PDF' },
+  ]
+
   return (
     <div>
       <h3 style={{ fontFamily: FONTS.heading, fontSize: '1.1rem', color: COLORS.dark, marginBottom: '0.75rem' }}>
         📄 Contenuti dei libri
       </h3>
 
-      {/* Add form */}
       <div style={{ padding: '1rem', background: COLORS.bgPurple, borderRadius: '14px', marginBottom: '1rem' }}>
         <p style={{ fontFamily: FONTS.heading, fontSize: '0.9rem', color: COLORS.purple, marginBottom: '0.6rem' }}>Aggiungi contenuto</p>
         
@@ -207,17 +349,115 @@ function AdminContents() {
         <input value={form.title} onChange={e => setForm({...form, title: e.target.value})} placeholder="Titolo argomento (es: I Romani)"
           style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: `1px solid ${COLORS.grayBorder}`, fontFamily: FONTS.body, fontSize: '0.82rem', marginBottom: '0.5rem', boxSizing: 'border-box' }} />
 
-        <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.5rem' }}>
+        <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.75rem' }}>
           <input type="number" value={form.page_start} onChange={e => setForm({...form, page_start: e.target.value})} placeholder="Da pag."
             style={{ flex: 1, padding: '0.5rem', borderRadius: '8px', border: `1px solid ${COLORS.grayBorder}`, fontFamily: FONTS.body, fontSize: '0.82rem' }} />
           <input type="number" value={form.page_end} onChange={e => setForm({...form, page_end: e.target.value})} placeholder="A pag."
             style={{ flex: 1, padding: '0.5rem', borderRadius: '8px', border: `1px solid ${COLORS.grayBorder}`, fontFamily: FONTS.body, fontSize: '0.82rem' }} />
         </div>
 
-        <textarea value={form.content_text} onChange={e => setForm({...form, content_text: e.target.value})}
-          placeholder="Incolla qui il testo del libro per queste pagine..."
-          rows={5}
-          style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: `1px solid ${COLORS.grayBorder}`, fontFamily: FONTS.body, fontSize: '0.82rem', resize: 'vertical', boxSizing: 'border-box' }} />
+        {/* Upload mode selector */}
+        <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.75rem' }}>
+          {uploadModes.map(m => (
+            <button key={m.id} onClick={() => { setUploadMode(m.id); setUploadFiles([]); setExtractMsg('') }}
+              style={{
+                flex: 1, padding: '0.45rem 0.3rem', borderRadius: '10px', border: 'none', cursor: 'pointer',
+                fontFamily: FONTS.body, fontSize: '0.75rem', fontWeight: 600,
+                background: uploadMode === m.id ? COLORS.purple : 'white',
+                color: uploadMode === m.id ? 'white' : COLORS.gray,
+                transition: 'all 0.2s ease',
+              }}>
+              {m.label}
+            </button>
+          ))}
+        </div>
+
+        {/* TEXT MODE */}
+        {uploadMode === 'text' && (
+          <textarea value={form.content_text} onChange={e => setForm({...form, content_text: e.target.value})}
+            placeholder="Incolla qui il testo del libro per queste pagine..."
+            rows={5}
+            style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: `1px solid ${COLORS.grayBorder}`, fontFamily: FONTS.body, fontSize: '0.82rem', resize: 'vertical', boxSizing: 'border-box' }} />
+        )}
+
+        {/* PHOTO MODE */}
+        {uploadMode === 'photo' && (
+          <div>
+            <div onClick={() => fileRef.current?.click()}
+              style={{ border: `2px dashed ${COLORS.purpleLight}`, borderRadius: '12px', padding: '1rem', textAlign: 'center', cursor: 'pointer', marginBottom: '0.5rem', background: 'white' }}>
+              <p style={{ fontFamily: FONTS.body, fontSize: '0.85rem', color: COLORS.purple, fontWeight: 600, margin: '0 0 0.2rem' }}>📷 Tocca per caricare foto</p>
+              <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.grayLight, margin: 0 }}>Fotografa le pagine del libro</p>
+            </div>
+            <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
+              onChange={e => handleImageFiles(e.target.files)} />
+
+            {uploadFiles.length > 0 && (
+              <div style={{ marginBottom: '0.5rem' }}>
+                <p style={{ fontFamily: FONTS.body, fontSize: '0.8rem', color: COLORS.dark, marginBottom: '0.4rem' }}>
+                  {uploadFiles.length} foto caricat{uploadFiles.length === 1 ? 'a' : 'e'}
+                </p>
+                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+                  {uploadFiles.map((f, i) => (
+                    <div key={i} style={{ position: 'relative', width: '55px', height: '55px', borderRadius: '8px', overflow: 'hidden', border: `2px solid ${COLORS.grayBorder}` }}>
+                      <img src={URL.createObjectURL(f)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      <button onClick={() => removeFile(i)}
+                        style={{ position: 'absolute', top: '2px', right: '2px', background: COLORS.red, color: 'white', border: 'none', borderRadius: '50%', width: '18px', height: '18px', fontSize: '0.6rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+                    </div>
+                  ))}
+                </div>
+                <button onClick={extractText} disabled={extracting}
+                  style={{ ...btnPink, width: '100%', padding: '0.5rem', fontSize: '0.85rem', opacity: extracting ? 0.7 : 1 }}>
+                  {extracting ? extractMsg : '🧠 Estrai testo dalle foto'}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* PDF MODE */}
+        {uploadMode === 'pdf' && (
+          <div>
+            <div onClick={() => pdfRef.current?.click()}
+              style={{ border: `2px dashed ${COLORS.purpleLight}`, borderRadius: '12px', padding: '1rem', textAlign: 'center', cursor: 'pointer', marginBottom: '0.5rem', background: 'white' }}>
+              <p style={{ fontFamily: FONTS.body, fontSize: '0.85rem', color: COLORS.purple, fontWeight: 600, margin: '0 0 0.2rem' }}>📄 Tocca per caricare PDF</p>
+              <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.grayLight, margin: 0 }}>Carica il PDF delle pagine</p>
+            </div>
+            <input ref={pdfRef} type="file" accept="application/pdf" style={{ display: 'none' }}
+              onChange={e => handlePDFFile(e.target.files)} />
+
+            {uploadFiles.length > 0 && (
+              <div style={{ marginBottom: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0.75rem', background: 'white', borderRadius: '10px', border: `1px solid ${COLORS.grayBorder}`, marginBottom: '0.5rem' }}>
+                  <span style={{ fontSize: '1.3rem' }}>📄</span>
+                  <div style={{ flex: 1 }}>
+                    <p style={{ fontFamily: FONTS.body, fontSize: '0.82rem', color: COLORS.dark, margin: 0 }}>{uploadFiles[0].name}</p>
+                    <p style={{ fontFamily: FONTS.body, fontSize: '0.7rem', color: COLORS.grayLight, margin: 0 }}>{(uploadFiles[0].size / 1024 / 1024).toFixed(1)} MB</p>
+                  </div>
+                  <button onClick={() => setUploadFiles([])}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', opacity: 0.4 }}>✕</button>
+                </div>
+                <button onClick={extractText} disabled={extracting}
+                  style={{ ...btnPink, width: '100%', padding: '0.5rem', fontSize: '0.85rem', opacity: extracting ? 0.7 : 1 }}>
+                  {extracting ? extractMsg : '🧠 Estrai testo dal PDF'}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Extracted text / status message */}
+        {extractMsg && !extracting && (
+          <p style={{ fontFamily: FONTS.body, fontSize: '0.78rem', color: extractMsg.includes('✅') ? COLORS.green : extractMsg.includes('❌') ? COLORS.orange : COLORS.purple, margin: '0.4rem 0' }}>
+            {extractMsg}
+          </p>
+        )}
+
+        {form.content_text && (uploadMode === 'photo' || uploadMode === 'pdf') && (
+          <textarea value={form.content_text} onChange={e => setForm({...form, content_text: e.target.value})}
+            placeholder="Testo estratto..."
+            rows={4}
+            style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: `1px solid ${COLORS.grayBorder}`, fontFamily: FONTS.body, fontSize: '0.82rem', resize: 'vertical', boxSizing: 'border-box', marginTop: '0.4rem' }} />
+        )}
 
         <button onClick={addContent} style={{ ...btnSuccess, width: '100%', padding: '0.6rem', fontSize: '0.9rem', marginTop: '0.5rem' }}>
           ✅ Salva contenuto
