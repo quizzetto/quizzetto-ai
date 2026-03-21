@@ -1,8 +1,14 @@
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
 
 function getQuestionsCount(pageCount) {
-  // Always generate 20 base questions for 1 page, +10 for each additional page
+  // Pool generato: doppio delle domande proposte
+  // 1 pag = 20 generate, 2 pag = 30, 3 pag = 40
   return 20 + Math.max(0, (pageCount - 1) * 10)
+}
+
+export function getProposedCount(pageCount) {
+  // Domande proposte al bambino: 10 base + 5 per pagina aggiuntiva
+  return 10 + Math.max(0, (pageCount - 1) * 5)
 }
 
 function getDifficultyDistribution(total) {
