@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { generateQuizFromText, generateQuizFromImages } from '../lib/ai'
 import { COLORS, FONTS, btnPrimary, btnSuccess, btnPink, btnDanger, pressStyle, card } from '../lib/styles'
@@ -10,7 +10,6 @@ import PaymentWall from './PaymentWall'
 import AdminPanel from './AdminPanel'
 
 const PHASES = { HOME: 'home', BROWSE: 'browse', PAGES: 'pages', UPLOAD: 'upload', LOADING: 'loading', SETUP: 'setup', QUIZ: 'quiz', RESULTS: 'results', PAYMENT: 'payment', ADMIN: 'admin' }
-
 const loadingMessages = ['📚 Sto leggendo le pagine...', '🧠 Analizzo gli argomenti...', '✏️ Preparo le domande...', '🎯 Quasi pronto!']
 
 export default function App({ user, profile }) {
@@ -20,17 +19,16 @@ export default function App({ user, profile }) {
   const [timerSeconds, setTimerSeconds] = useState(0)
   const [error, setError] = useState(null)
   const [subjects, setSubjects] = useState([])
-  const [contents, setContents] = useState([])
+  const [availablePages, setAvailablePages] = useState([])
+  const [selectedPages, setSelectedPages] = useState([])
   const [savedQuizzes, setSavedQuizzes] = useState([])
   const [selectedSubject, setSelectedSubject] = useState(null)
-  const [selectedContent, setSelectedContent] = useState(null)
   const [access, setAccess] = useState(null)
   const [dailyLimit, setDailyLimit] = useState(null)
   const [loadingMsgIdx, setLoadingMsgIdx] = useState(0)
 
   const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY
 
-  // Load initial data
   useEffect(() => {
     loadAccess()
     loadSubjects()
@@ -58,22 +56,29 @@ export default function App({ user, profile }) {
     setSavedQuizzes(data || [])
   }
 
-  const loadContents = async (subjectId) => {
+  const loadPages = async (subjectId) => {
     const yearFilter = profile.school_year || '1'
-    let query = supabase.from('contents').select('*').eq('subject_id', subjectId).eq('school_year', yearFilter)
+    let query = supabase.from('pages').select('*, subjects(name, icon)').eq('subject_id', subjectId).eq('school_year', yearFilter)
     if (profile.section) {
       query = query.or(`section.is.null,section.eq.${profile.section}`)
     }
-    const { data } = await query.order('page_start')
-    setContents(data || [])
+    const { data } = await query.order('page_number')
+    setAvailablePages(data || [])
   }
 
-  // Check access before generating
+  const togglePageSelection = (page) => {
+    setSelectedPages(prev => {
+      const exists = prev.find(p => p.id === page.id)
+      if (exists) return prev.filter(p => p.id !== page.id)
+      return [...prev, page].sort((a, b) => a.page_number - b.page_number)
+    })
+  }
+
   const checkCanGenerate = async () => {
-    await loadAccess()
-    await loadDailyLimit()
     const freshAccess = await supabase.rpc('check_user_access', { p_user_id: user.id })
     const freshLimit = await supabase.rpc('check_daily_quiz_limit', { p_user_id: user.id })
+    setAccess(freshAccess.data)
+    setDailyLimit(freshLimit.data)
 
     if (freshAccess.data?.needs_payment) {
       setPhase(PHASES.PAYMENT)
@@ -86,30 +91,31 @@ export default function App({ user, profile }) {
     return true
   }
 
-  // Generate from content
-  const handleGenerateFromContent = async (content) => {
+  // Generate quiz from selected pages
+  const handleGenerateFromPages = async () => {
+    if (selectedPages.length === 0) return
     if (!(await checkCanGenerate())) return
     setPhase(PHASES.LOADING)
     setError(null)
     const msgTimer = setInterval(() => setLoadingMsgIdx(p => (p + 1) % loadingMessages.length), 2500)
 
     try {
-      const pageCount = content.page_end - content.page_start + 1
-      const quizData = await generateQuizFromText(content.content_text, content.title, pageCount, apiKey)
-      
-      // Save to DB
+      const combinedText = selectedPages.map(p => `--- Pagina ${p.page_number} ---\n${p.extracted_text || ''}`).join('\n\n')
+      const topic = `${selectedSubject?.name} - pag. ${selectedPages.map(p => p.page_number).join(', ')}`
+      const pageCount = selectedPages.length
+
+      const quizData = await generateQuizFromText(combinedText, topic, pageCount, apiKey)
+
       const { data: saved } = await supabase.from('quizzes').insert({
         user_id: user.id,
-        subject_id: content.subject_id,
-        content_id: content.id,
+        subject_id: selectedSubject?.id,
         topic: quizData.topic,
         questions: quizData.questions,
-        source_type: 'content',
-        page_start: content.page_start,
-        page_end: content.page_end,
+        source_type: 'pages',
+        page_start: selectedPages[0].page_number,
+        page_end: selectedPages[selectedPages.length - 1].page_number,
       }).select().single()
 
-      // Increment counters
       await supabase.from('profiles').update({
         daily_quiz_count: (dailyLimit?.max || 10) - (dailyLimit?.remaining || 10) + 1,
         free_sessions_used: (access?.free_sessions_used || 0) + 1,
@@ -120,7 +126,7 @@ export default function App({ user, profile }) {
       setPhase(PHASES.SETUP)
     } catch (err) {
       console.error(err)
-      setError('Ops! Qualcosa è andato storto. Riprova! 📸')
+      setError('Ops! Qualcosa è andato storto. Riprova!')
       setPhase(PHASES.HOME)
     }
     clearInterval(msgTimer)
@@ -135,7 +141,6 @@ export default function App({ user, profile }) {
 
     try {
       const quizData = await generateQuizFromImages(files, apiKey)
-      
       const { data: saved } = await supabase.from('quizzes').insert({
         user_id: user.id,
         topic: quizData.topic,
@@ -159,18 +164,14 @@ export default function App({ user, profile }) {
     clearInterval(msgTimer)
   }
 
-  // Load saved quiz
   const handleLoadSaved = (savedQuiz) => {
     setQuiz({ ...savedQuiz, dbId: savedQuiz.id })
     setPhase(PHASES.SETUP)
   }
 
-  // Quiz finished
   const handleFinish = async (ans) => {
     setAnswers(ans)
     const correctCount = ans.filter(a => a.selected === a.correct).length
-    
-    // Save result
     await supabase.from('quiz_results').insert({
       quiz_id: quiz.dbId,
       user_id: user.id,
@@ -180,7 +181,6 @@ export default function App({ user, profile }) {
       percentage: Math.round((correctCount / ans.length) * 100),
       timer_mode: timerSeconds > 0 ? `${timerSeconds}s` : 'off',
     })
-
     setPhase(PHASES.RESULTS)
   }
 
@@ -191,65 +191,37 @@ export default function App({ user, profile }) {
   }
 
   const goHome = () => {
-    setQuiz(null)
-    setAnswers([])
-    setError(null)
-    setSelectedSubject(null)
-    setSelectedContent(null)
-    loadSavedQuizzes()
-    loadDailyLimit()
-    loadAccess()
+    setQuiz(null); setAnswers([]); setError(null); setSelectedSubject(null); setSelectedPages([]); setAvailablePages([])
+    loadSavedQuizzes(); loadDailyLimit(); loadAccess()
     setPhase(PHASES.HOME)
   }
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut()
-  }
+  const handleLogout = async () => { await supabase.auth.signOut() }
 
-  // ─── RENDER PHASES ───
-
+  // ─── RENDER HOME ───
   const renderHome = () => (
     <div style={{ textAlign: 'center' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <p style={{ fontFamily: FONTS.heading, fontSize: '1.1rem', color: COLORS.dark, margin: 0 }}>
-          Ciao {profile.child_name}! 👋
-        </p>
+        <p style={{ fontFamily: FONTS.heading, fontSize: '1.1rem', color: COLORS.dark, margin: 0 }}>Ciao {profile.child_name}! 👋</p>
         <div style={{ display: 'flex', gap: '0.3rem' }}>
-          {profile.is_admin && (
-            <button onClick={() => setPhase(PHASES.ADMIN)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: '0.2rem' }} title="Admin">⚙️</button>
-          )}
-          <button onClick={handleLogout}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: '0.2rem' }} title="Esci">🚪</button>
+          {profile.is_admin && <button onClick={() => setPhase(PHASES.ADMIN)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: '0.2rem' }} title="Admin">⚙️</button>}
+          <button onClick={handleLogout} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: '0.2rem' }} title="Esci">🚪</button>
         </div>
       </div>
 
-      {/* Daily limit indicator */}
-      {dailyLimit && (
-        <p style={{ fontFamily: FONTS.body, fontSize: '0.78rem', color: COLORS.grayLight, marginBottom: '1rem' }}>
-          Quiz nuovi disponibili oggi: {dailyLimit.remaining}/{dailyLimit.max}
-        </p>
-      )}
+      {dailyLimit && <p style={{ fontFamily: FONTS.body, fontSize: '0.78rem', color: COLORS.grayLight, marginBottom: '1rem' }}>Quiz nuovi oggi: {dailyLimit.remaining}/{dailyLimit.max}</p>}
 
-      {/* Free sessions indicator */}
       {access && !access.has_paid && !access.is_free_access && !access.is_admin && (
         <div style={{ padding: '0.5rem 0.75rem', background: COLORS.bgYellow, borderRadius: '10px', marginBottom: '1rem' }}>
-          <p style={{ fontFamily: FONTS.body, fontSize: '0.8rem', color: '#e67e22', margin: 0 }}>
-            Sessioni gratuite: {access.max_free_sessions - access.free_sessions_used} di {access.max_free_sessions} rimaste
-          </p>
+          <p style={{ fontFamily: FONTS.body, fontSize: '0.8rem', color: '#e67e22', margin: 0 }}>Sessioni gratuite: {access.max_free_sessions - access.free_sessions_used} di {access.max_free_sessions} rimaste</p>
         </div>
       )}
 
-      {error && (
-        <div style={{ background: COLORS.bgRed, border: '1px solid rgba(255,107,107,0.15)', borderRadius: '12px', padding: '0.7rem 1rem', marginBottom: '1rem', fontFamily: FONTS.body, fontSize: '0.85rem', color: COLORS.orange }}>
-          {error}
-        </div>
-      )}
+      {error && <div style={{ background: COLORS.bgRed, border: '1px solid rgba(255,107,107,0.15)', borderRadius: '12px', padding: '0.7rem 1rem', marginBottom: '1rem', fontFamily: FONTS.body, fontSize: '0.85rem', color: COLORS.orange }}>{error}</div>}
 
-      {/* Main actions */}
       <button onClick={() => setPhase(PHASES.BROWSE)} {...pressStyle}
         style={{ ...btnPrimary, width: '100%', padding: '1rem', fontSize: '1.05rem', marginBottom: '0.65rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-        📖 Quiz dagli argomenti
+        📖 Quiz dalle pagine del libro
       </button>
 
       <button onClick={() => setPhase(PHASES.UPLOAD)} {...pressStyle}
@@ -257,12 +229,9 @@ export default function App({ user, profile }) {
         📷 Quiz da foto
       </button>
 
-      {/* Saved quizzes */}
       {savedQuizzes.length > 0 && (
         <div style={{ textAlign: 'left' }}>
-          <p style={{ fontFamily: FONTS.heading, fontSize: '0.95rem', color: COLORS.gray, marginBottom: '0.6rem' }}>
-            💾 Quiz salvati ({savedQuizzes.length})
-          </p>
+          <p style={{ fontFamily: FONTS.heading, fontSize: '0.95rem', color: COLORS.gray, marginBottom: '0.6rem' }}>💾 Quiz salvati ({savedQuizzes.length})</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '200px', overflowY: 'auto' }}>
             {savedQuizzes.map(q => (
               <div key={q.id} onClick={() => handleLoadSaved(q)}
@@ -280,25 +249,22 @@ export default function App({ user, profile }) {
     </div>
   )
 
+  // ─── RENDER BROWSE SUBJECTS ───
   const renderBrowse = () => (
     <div>
       <button onClick={goHome} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, fontSize: '0.9rem', color: COLORS.purpleLight, marginBottom: '1rem' }}>← Indietro</button>
       <h3 style={{ fontFamily: FONTS.heading, fontSize: '1.2rem', color: COLORS.dark, marginBottom: '0.3rem' }}>Scegli la materia</h3>
       <p style={{ fontFamily: FONTS.body, fontSize: '0.85rem', color: COLORS.grayLight, marginBottom: '1rem' }}>Su cosa ti vuoi mettere alla prova?</p>
-      
+
       {subjects.length === 0 ? (
         <p style={{ fontFamily: FONTS.body, fontSize: '0.9rem', color: COLORS.grayLight, textAlign: 'center', padding: '2rem 0' }}>
-          Nessuna materia disponibile ancora. {profile.is_admin ? 'Vai nel pannello admin per aggiungerne!' : 'Chiedi al tuo insegnante di aggiungere i contenuti!'}
+          Nessuna materia disponibile ancora.
         </p>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
           {subjects.map(s => (
-            <button key={s.id} onClick={() => { setSelectedSubject(s); loadContents(s.id); setPhase(PHASES.PAGES) }}
-              style={{
-                display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.9rem 1rem',
-                background: 'white', border: `2px solid ${COLORS.grayBorder}`, borderRadius: '14px',
-                cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s ease',
-              }}>
+            <button key={s.id} onClick={() => { setSelectedSubject(s); loadPages(s.id); setSelectedPages([]); setPhase(PHASES.PAGES) }}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.9rem 1rem', background: 'white', border: `2px solid ${COLORS.grayBorder}`, borderRadius: '14px', cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s ease' }}>
               <span style={{ fontSize: '1.8rem' }}>{s.icon}</span>
               <span style={{ fontFamily: FONTS.heading, fontSize: '1.05rem', color: COLORS.dark }}>{s.name}</span>
             </button>
@@ -308,7 +274,8 @@ export default function App({ user, profile }) {
     </div>
   )
 
-  const renderPages = () => (
+  // ─── RENDER PAGE CAROUSEL ───
+  const renderPageCarousel = () => (
     <div>
       <button onClick={() => setPhase(PHASES.BROWSE)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, fontSize: '0.9rem', color: COLORS.purpleLight, marginBottom: '1rem' }}>← Indietro</button>
       <h3 style={{ fontFamily: FONTS.heading, fontSize: '1.2rem', color: COLORS.dark, marginBottom: '0.3rem' }}>
@@ -318,39 +285,81 @@ export default function App({ user, profile }) {
         Su quali pagine ti vuoi mettere alla prova?
       </p>
 
-      {contents.length === 0 ? (
+      {availablePages.length === 0 ? (
         <p style={{ fontFamily: FONTS.body, fontSize: '0.9rem', color: COLORS.grayLight, textAlign: 'center', padding: '2rem 0' }}>
-          Nessun contenuto disponibile per questa materia.
+          Nessuna pagina disponibile per questa materia.
         </p>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-          {contents.map(c => (
-            <button key={c.id} onClick={() => handleGenerateFromContent(c)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1rem',
-                background: 'white', border: `2px solid ${COLORS.grayBorder}`, borderRadius: '14px',
-                cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s ease',
-              }}>
-              <div style={{
-                width: '40px', height: '40px', borderRadius: '10px', background: COLORS.bgPurple,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontFamily: FONTS.heading, fontSize: '0.75rem', color: COLORS.purple,
-              }}>
-                p.{c.page_start}{c.page_end > c.page_start ? `-${c.page_end}` : ''}
-              </div>
+        <>
+          {/* Selection info */}
+          {selectedPages.length > 0 && (
+            <div style={{ padding: '0.6rem 0.85rem', background: COLORS.bgPurple, borderRadius: '12px', marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <p style={{ fontFamily: FONTS.heading, fontSize: '0.95rem', color: COLORS.dark, margin: 0 }}>{c.title}</p>
-                <p style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: COLORS.grayLight, margin: 0 }}>
-                  {c.page_end - c.page_start + 1} pagin{c.page_end > c.page_start ? 'e' : 'a'} · {10 + Math.max(0, (c.page_end - c.page_start) * 5)} domande
+                <p style={{ fontFamily: FONTS.heading, fontSize: '0.9rem', color: COLORS.purple, margin: 0 }}>
+                  {selectedPages.length} pagin{selectedPages.length === 1 ? 'a' : 'e'} selezionat{selectedPages.length === 1 ? 'a' : 'e'}
+                </p>
+                <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.grayLight, margin: 0 }}>
+                  {10 + Math.max(0, (selectedPages.length - 1) * 5)} domande
                 </p>
               </div>
+              <button onClick={() => setSelectedPages([])}
+                style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: COLORS.orange, background: 'none', border: 'none', cursor: 'pointer' }}>
+                Deseleziona
+              </button>
+            </div>
+          )}
+
+          {/* Page grid / carousel */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem', justifyContent: 'center', marginBottom: '1.25rem', maxHeight: '380px', overflowY: 'auto', padding: '0.25rem' }}>
+            {availablePages.map(p => {
+              const isSelected = selectedPages.find(sp => sp.id === p.id)
+              return (
+                <div key={p.id} onClick={() => togglePageSelection(p)}
+                  style={{
+                    width: '100px', borderRadius: '12px', overflow: 'hidden', cursor: 'pointer',
+                    border: isSelected ? `3px solid ${COLORS.purple}` : `2px solid ${COLORS.grayBorder}`,
+                    background: 'white', transition: 'all 0.2s ease',
+                    transform: isSelected ? 'scale(1.03)' : 'scale(1)',
+                    boxShadow: isSelected ? `0 4px 15px rgba(108,92,231,0.25)` : '0 2px 6px rgba(0,0,0,0.05)',
+                  }}>
+                  <div style={{ position: 'relative' }}>
+                    <img src={p.image_url} alt={`pag ${p.page_number}`}
+                      style={{ width: '100%', height: '130px', objectFit: 'cover', display: 'block' }}
+                      onError={e => { e.target.src = ''; e.target.style.background = COLORS.bgPurple; e.target.style.height = '130px' }} />
+                    {isSelected && (
+                      <div style={{
+                        position: 'absolute', top: '5px', right: '5px', width: '24px', height: '24px',
+                        borderRadius: '50%', background: COLORS.purple, display: 'flex', alignItems: 'center',
+                        justifyContent: 'center', color: 'white', fontSize: '0.75rem', fontWeight: 700,
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+                      }}>
+                        ✓
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ padding: '0.35rem', textAlign: 'center' }}>
+                    <p style={{ fontFamily: FONTS.heading, fontSize: '0.82rem', color: isSelected ? COLORS.purple : COLORS.dark, margin: 0 }}>
+                      Pag. {p.page_number}
+                    </p>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Start quiz button */}
+          {selectedPages.length > 0 && (
+            <button onClick={handleGenerateFromPages} {...pressStyle}
+              style={{ ...btnPink, width: '100%', padding: '1rem', fontSize: '1.1rem' }}>
+              🚀 Crea il Quiz! ({selectedPages.length} pagin{selectedPages.length === 1 ? 'a' : 'e'})
             </button>
-          ))}
-        </div>
+          )}
+        </>
       )}
     </div>
   )
 
+  // ─── RENDER UPLOAD (photo) ───
   const renderUpload = () => {
     const [images, setImages] = useState([])
     const fileRef = useRef(null)
@@ -408,6 +417,7 @@ export default function App({ user, profile }) {
     )
   }
 
+  // ─── RENDER LOADING ───
   const renderLoading = () => (
     <div style={{ textAlign: 'center', padding: '3rem 1rem' }}>
       <div style={{ width: '70px', height: '70px', margin: '0 auto 1.5rem', borderRadius: '50%', border: '5px solid #eee', borderTopColor: COLORS.purple, animation: 'spin 1s linear infinite' }} />
@@ -417,6 +427,7 @@ export default function App({ user, profile }) {
     </div>
   )
 
+  // ─── MAIN RENDER ───
   return (
     <div style={{ minHeight: '100vh' }}>
       <Header />
@@ -431,7 +442,7 @@ export default function App({ user, profile }) {
         <div style={card}>
           {phase === PHASES.HOME && renderHome()}
           {phase === PHASES.BROWSE && renderBrowse()}
-          {phase === PHASES.PAGES && renderPages()}
+          {phase === PHASES.PAGES && renderPageCarousel()}
           {phase === PHASES.UPLOAD && renderUpload()}
           {phase === PHASES.LOADING && renderLoading()}
           {phase === PHASES.SETUP && quiz && <TimerSetup quiz={quiz} onStart={s => { setTimerSeconds(s); setAnswers([]); setPhase(PHASES.QUIZ) }} />}
