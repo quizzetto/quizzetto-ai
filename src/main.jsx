@@ -4,13 +4,22 @@ import { useState, useEffect } from 'react'
 import { supabase } from './lib/supabase'
 import Auth from './components/Auth'
 import App from './components/App'
+import ResetPassword from './components/ResetPassword'
 
 function Root() {
   const [session, setSession] = useState(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [isPasswordReset, setIsPasswordReset] = useState(false)
 
   useEffect(() => {
+    // Check if this is a password reset flow
+    const hashParams = new URLSearchParams(window.location.hash.substring(1))
+    const type = hashParams.get('type')
+    if (type === 'recovery') {
+      setIsPasswordReset(true)
+    }
+
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
@@ -19,8 +28,11 @@ function Root() {
     })
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session)
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsPasswordReset(true)
+      }
       if (session) loadProfile(session.user.id)
       else { setProfile(null); setLoading(false) }
     })
@@ -34,6 +46,12 @@ function Root() {
     setLoading(false)
   }
 
+  const handlePasswordResetDone = () => {
+    setIsPasswordReset(false)
+    // Clean URL hash
+    window.history.replaceState(null, '', window.location.pathname)
+  }
+
   if (loading) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -44,6 +62,11 @@ function Root() {
         </div>
       </div>
     )
+  }
+
+  // Show password reset screen
+  if (isPasswordReset && session) {
+    return <ResetPassword onDone={handlePasswordResetDone} />
   }
 
   if (!session) return <Auth />
