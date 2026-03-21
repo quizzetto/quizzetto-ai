@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { generateQuizFromText, generateQuizFromImages, pickRandomQuestions } from '../lib/ai'
+import { generateQuizFromText, generateQuizFromImages, pickRandomQuestions, getProposedCount } from '../lib/ai'
 import { COLORS, FONTS, btnPrimary, btnSuccess, btnPink, btnDanger, pressStyle, card } from '../lib/styles'
 import Header from './Header'
 import QuizPlay from './QuizPlay'
@@ -118,11 +118,8 @@ export default function App({ user, profile }) {
 
       quizData.dbId = saved?.id
       quizData.allQuestions = quizData.questions
-      quizData.questions = pickRandomQuestions(quizData.questions, 10)
+      quizData.questions = pickRandomQuestions(quizData.questions, getProposedCount(selectedPages.length))
       setQuiz(quizData); setPhase(PHASES.SETUP)
-    } catch (err) {
-      console.error(err); setError('Ops! Qualcosa è andato storto. Riprova!'); setPhase(PHASES.HOME)
-    }
     clearInterval(msgTimer)
   }
 
@@ -144,7 +141,7 @@ export default function App({ user, profile }) {
 
       quizData.dbId = saved?.id
       quizData.allQuestions = quizData.questions
-      quizData.questions = pickRandomQuestions(quizData.questions, 10)
+      quizData.questions = pickRandomQuestions(quizData.questions, getProposedCount(files.length))
       setQuiz(quizData); setPhase(PHASES.SETUP)
     } catch (err) {
       console.error(err); setError('Ops! Qualcosa è andato storto. Riprova con foto più chiare! 📸'); setPhase(PHASES.HOME)
@@ -153,7 +150,11 @@ export default function App({ user, profile }) {
   }
 
   const handleLoadSaved = (savedQuiz) => {
-    const randomQuestions = pickRandomQuestions(savedQuiz.questions, 10)
+    const pageCount = savedQuiz.page_end && savedQuiz.page_start 
+      ? savedQuiz.page_end - savedQuiz.page_start + 1 
+      : 1
+    const proposedCount = getProposedCount(pageCount)
+    const randomQuestions = pickRandomQuestions(savedQuiz.questions, proposedCount)
     setQuiz({ ...savedQuiz, dbId: savedQuiz.id, allQuestions: savedQuiz.questions, questions: randomQuestions })
     setPhase(PHASES.SETUP)
   }
@@ -269,7 +270,7 @@ export default function App({ user, profile }) {
             <div style={{ padding: '0.6rem 0.85rem', background: COLORS.bgPurple, borderRadius: '12px', marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <p style={{ fontFamily: FONTS.heading, fontSize: '0.9rem', color: COLORS.purple, margin: 0 }}>{selectedPages.length} pagin{selectedPages.length === 1 ? 'a' : 'e'} selezionat{selectedPages.length === 1 ? 'a' : 'e'}</p>
-                <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.grayLight, margin: 0 }}>{10 + Math.max(0, (selectedPages.length - 1) * 5)} domande</p>
+                <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.grayLight, margin: 0 }}>{getProposedCount(selectedPages.length)} domande</p>
               </div>
               <button onClick={() => setSelectedPages([])} style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: COLORS.orange, background: 'none', border: 'none', cursor: 'pointer' }}>Deseleziona</button>
             </div>
