@@ -11,30 +11,32 @@ async function extractTextFromImage(file, apiKey) {
     reader.onerror = () => reject(new Error('Errore lettura'))
     reader.readAsDataURL(file)
   })
-
   const content = file.type === 'application/pdf'
     ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } }
     : { type: 'image', source: { type: 'base64', media_type: file.type || 'image/jpeg', data: base64 } }
-
   const response = await fetch(ANTHROPIC_API_URL, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true'
-    },
+    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
     body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 4000,
-      messages: [{ role: 'user', content: [
-        content,
-        { type: 'text', text: `Estrai TUTTO il testo presente in questa pagina di un libro scolastico. Trascrivi fedelmente mantenendo la struttura. NON aggiungere commenti. Se ci sono immagini/grafici, descrivi brevemente tra parentesi quadre. Rispondi SOLO con il testo estratto.` }
-      ]}]
+      model: 'claude-haiku-4-5-20251001', max_tokens: 4000,
+      messages: [{ role: 'user', content: [content, { type: 'text', text: 'Estrai TUTTO il testo presente in questa pagina di un libro scolastico. Trascrivi fedelmente mantenendo la struttura. NON aggiungere commenti. Se ci sono immagini/grafici, descrivi brevemente tra parentesi quadre. Rispondi SOLO con il testo estratto.' }] }]
     })
   })
   const data = await response.json()
   return data.content.filter(i => i.type === 'text').map(i => i.text).join('')
+}
+
+function extractPageNumber(filename) {
+  // Remove extension first
+  const nameOnly = filename.replace(/\.[^.]+$/, '')
+  // Take the last 3 characters and try to parse as number
+  const lastChars = nameOnly.slice(-3)
+  const num = parseInt(lastChars)
+  if (!isNaN(num)) return num
+  // Fallback: find the last number sequence in the filename
+  const matches = nameOnly.match(/(\d+)/g)
+  if (matches && matches.length > 0) return parseInt(matches[matches.length - 1])
+  return null
 }
 
 function getNextMonthDate(fromDate) {
@@ -42,61 +44,26 @@ function getNextMonthDate(fromDate) {
   const day = d.getDate()
   const nextMonth = new Date(d.getFullYear(), d.getMonth() + 1, 1)
   const lastDayNextMonth = new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 0).getDate()
-  const targetDay = Math.min(day, lastDayNextMonth)
-  return new Date(nextMonth.getFullYear(), nextMonth.getMonth(), targetDay).toISOString().split('T')[0]
+  return new Date(nextMonth.getFullYear(), nextMonth.getMonth(), Math.min(day, lastDayNextMonth)).toISOString().split('T')[0]
 }
 
 /* ─── ADMIN USERS ─── */
 function AdminUsers() {
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
-
   useEffect(() => { loadUsers() }, [])
-
-  const loadUsers = async () => {
-    const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false })
-    setUsers(data || [])
-    setLoading(false)
-  }
-
-  const toggleFreeAccess = async (userId, current) => {
-    await supabase.from('profiles').update({ is_free_access: !current }).eq('id', userId)
-    loadUsers()
-  }
-
-  const activatePaid = async (userId) => {
-    const paidUntil = getNextMonthDate(new Date())
-    await supabase.from('profiles').update({ has_paid: true, paid_until: paidUntil }).eq('id', userId)
-    loadUsers()
-  }
-
-  const deactivatePaid = async (userId) => {
-    await supabase.from('profiles').update({ has_paid: false, paid_until: null }).eq('id', userId)
-    loadUsers()
-  }
-
-  const toggleActive = async (userId, current) => {
-    await supabase.from('profiles').update({ is_active: !current }).eq('id', userId)
-    loadUsers()
-  }
-
-  const formatDate = (dateStr) => {
-    if (!dateStr) return ''
-    return new Date(dateStr).toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' })
-  }
-
-  const isExpired = (paidUntil) => {
-    if (!paidUntil) return false
-    return new Date(paidUntil) < new Date()
-  }
+  const loadUsers = async () => { const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false }); setUsers(data || []); setLoading(false) }
+  const toggleFreeAccess = async (userId, current) => { await supabase.from('profiles').update({ is_free_access: !current }).eq('id', userId); loadUsers() }
+  const activatePaid = async (userId) => { await supabase.from('profiles').update({ has_paid: true, paid_until: getNextMonthDate(new Date()) }).eq('id', userId); loadUsers() }
+  const deactivatePaid = async (userId) => { await supabase.from('profiles').update({ has_paid: false, paid_until: null }).eq('id', userId); loadUsers() }
+  const toggleActive = async (userId, current) => { await supabase.from('profiles').update({ is_active: !current }).eq('id', userId); loadUsers() }
+  const formatDate = (d) => d ? new Date(d).toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' }) : ''
+  const isExpired = (d) => d ? new Date(d) < new Date() : false
 
   if (loading) return <p style={{ fontFamily: FONTS.body, color: COLORS.grayLight }}>Caricamento...</p>
-
   return (
     <div>
-      <h3 style={{ fontFamily: FONTS.heading, fontSize: '1.1rem', color: COLORS.dark, marginBottom: '0.75rem' }}>
-        👥 Utenti registrati ({users.length})
-      </h3>
+      <h3 style={{ fontFamily: FONTS.heading, fontSize: '1.1rem', color: COLORS.dark, marginBottom: '0.75rem' }}>👥 Utenti registrati ({users.length})</h3>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '400px', overflowY: 'auto' }}>
         {users.map(u => {
           const expired = u.has_paid && isExpired(u.paid_until)
@@ -107,36 +74,20 @@ function AdminUsers() {
                   <span style={{ fontFamily: FONTS.heading, fontSize: '0.9rem', color: COLORS.dark }}>{u.child_name}</span>
                   {u.is_admin && <span style={{ marginLeft: '0.4rem', fontSize: '0.7rem', background: COLORS.purple, color: 'white', padding: '0.1rem 0.4rem', borderRadius: '8px' }}>ADMIN</span>}
                 </div>
-                <span style={{
-                  fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '10px', fontFamily: FONTS.body,
-                  background: u.is_free_access ? COLORS.bgGreen : u.has_paid && !expired ? COLORS.bgGreen : u.has_paid && expired ? COLORS.bgRed : u.free_sessions_used < u.max_free_sessions ? COLORS.bgYellow : COLORS.bgRed,
-                  color: u.is_free_access ? COLORS.green : u.has_paid && !expired ? COLORS.green : u.has_paid && expired ? COLORS.orange : u.free_sessions_used < u.max_free_sessions ? '#e67e22' : COLORS.orange,
-                }}>
+                <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '10px', fontFamily: FONTS.body, background: u.is_free_access ? COLORS.bgGreen : u.has_paid && !expired ? COLORS.bgGreen : u.has_paid && expired ? COLORS.bgRed : u.free_sessions_used < u.max_free_sessions ? COLORS.bgYellow : COLORS.bgRed, color: u.is_free_access ? COLORS.green : u.has_paid && !expired ? COLORS.green : u.has_paid && expired ? COLORS.orange : u.free_sessions_used < u.max_free_sessions ? '#e67e22' : COLORS.orange }}>
                   {u.is_free_access ? 'Gratuito' : u.has_paid && !expired ? `Pagato → ${formatDate(u.paid_until)}` : u.has_paid && expired ? `Scaduto ${formatDate(u.paid_until)}` : `${u.free_sessions_used}/${u.max_free_sessions} gratis`}
                 </span>
               </div>
               <p style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: COLORS.grayLight, margin: '0 0 0.5rem' }}>{u.email}</p>
               {!u.is_admin && (
                 <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                  <button onClick={() => toggleFreeAccess(u.id, u.is_free_access)}
-                    style={{ fontSize: '0.7rem', padding: '0.25rem 0.5rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: u.is_free_access ? COLORS.green : COLORS.grayBorder, color: u.is_free_access ? 'white' : COLORS.gray }}>
-                    {u.is_free_access ? '✓ Gratuito' : 'Rendi gratuito'}
-                  </button>
+                  <button onClick={() => toggleFreeAccess(u.id, u.is_free_access)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.5rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: u.is_free_access ? COLORS.green : COLORS.grayBorder, color: u.is_free_access ? 'white' : COLORS.gray }}>{u.is_free_access ? '✓ Gratuito' : 'Rendi gratuito'}</button>
                   {(!u.has_paid || expired) ? (
-                    <button onClick={() => activatePaid(u.id)}
-                      style={{ fontSize: '0.7rem', padding: '0.25rem 0.5rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: COLORS.purple, color: 'white' }}>
-                      {expired ? '🔄 Rinnova (+30gg)' : '💳 Attiva pagamento'}
-                    </button>
+                    <button onClick={() => activatePaid(u.id)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.5rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: COLORS.purple, color: 'white' }}>{expired ? '🔄 Rinnova (+30gg)' : '💳 Attiva pagamento'}</button>
                   ) : (
-                    <button onClick={() => deactivatePaid(u.id)}
-                      style={{ fontSize: '0.7rem', padding: '0.25rem 0.5rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: COLORS.purple, color: 'white' }}>
-                      ✓ Pagato
-                    </button>
+                    <button onClick={() => deactivatePaid(u.id)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.5rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: COLORS.purple, color: 'white' }}>✓ Pagato</button>
                   )}
-                  <button onClick={() => toggleActive(u.id, u.is_active)}
-                    style={{ fontSize: '0.7rem', padding: '0.25rem 0.5rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: u.is_active ? COLORS.grayBorder : COLORS.red, color: u.is_active ? COLORS.gray : 'white' }}>
-                    {u.is_active ? 'Disattiva' : 'Riattiva'}
-                  </button>
+                  <button onClick={() => toggleActive(u.id, u.is_active)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.5rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: u.is_active ? COLORS.grayBorder : COLORS.red, color: u.is_active ? COLORS.gray : 'white' }}>{u.is_active ? 'Disattiva' : 'Riattiva'}</button>
                 </div>
               )}
             </div>
@@ -157,27 +108,22 @@ function AdminSubjects() {
   const addSubject = async () => { if (!newName.trim()) return; await supabase.from('subjects').insert({ name: newName.trim(), icon: newIcon }); setNewName(''); setNewIcon('📚'); loadSubjects() }
   const deleteSubject = async (id) => { if (!confirm('Eliminare questa materia e tutti i suoi contenuti?')) return; await supabase.from('subjects').delete().eq('id', id); loadSubjects() }
   const icons = ['📚', '📖', '🌍', '🔬', '🧮', '🇬🇧', '💻', '🎨', '🎵', '⚽', '📐', '🏛️']
-
   return (
     <div>
       <h3 style={{ fontFamily: FONTS.heading, fontSize: '1.1rem', color: COLORS.dark, marginBottom: '0.75rem' }}>📚 Materie</h3>
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
-          {icons.map(ic => (
-            <button key={ic} onClick={() => setNewIcon(ic)} style={{ fontSize: '1.2rem', padding: '0.3rem', border: newIcon === ic ? `2px solid ${COLORS.purple}` : '2px solid transparent', borderRadius: '8px', background: newIcon === ic ? COLORS.bgPurple : 'transparent', cursor: 'pointer' }}>{ic}</button>
-          ))}
+          {icons.map(ic => (<button key={ic} onClick={() => setNewIcon(ic)} style={{ fontSize: '1.2rem', padding: '0.3rem', border: newIcon === ic ? `2px solid ${COLORS.purple}` : '2px solid transparent', borderRadius: '8px', background: newIcon === ic ? COLORS.bgPurple : 'transparent', cursor: 'pointer' }}>{ic}</button>))}
         </div>
         <div style={{ display: 'flex', gap: '0.4rem', flex: 1, minWidth: '200px' }}>
-          <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Nome materia..." onKeyDown={e => e.key === 'Enter' && addSubject()}
-            style={{ flex: 1, padding: '0.5rem 0.75rem', border: `1.5px solid ${COLORS.grayBorder}`, borderRadius: '10px', fontFamily: FONTS.body, fontSize: '0.85rem', outline: 'none' }} />
+          <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Nome materia..." onKeyDown={e => e.key === 'Enter' && addSubject()} style={{ flex: 1, padding: '0.5rem 0.75rem', border: `1.5px solid ${COLORS.grayBorder}`, borderRadius: '10px', fontFamily: FONTS.body, fontSize: '0.85rem', outline: 'none' }} />
           <button onClick={addSubject} style={{ ...btnSuccess, padding: '0.5rem 1rem', fontSize: '0.85rem' }}>+ Aggiungi</button>
         </div>
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
         {subjects.map(s => (
           <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.75rem', background: COLORS.bgPurple, borderRadius: '10px', border: '1px solid rgba(108,92,231,0.1)' }}>
-            <span>{s.icon}</span>
-            <span style={{ fontFamily: FONTS.body, fontSize: '0.85rem', color: COLORS.dark }}>{s.name}</span>
+            <span>{s.icon}</span><span style={{ fontFamily: FONTS.body, fontSize: '0.85rem', color: COLORS.dark }}>{s.name}</span>
             <button onClick={() => deleteSubject(s.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', opacity: 0.4 }}>✕</button>
           </div>
         ))}
@@ -186,15 +132,15 @@ function AdminSubjects() {
   )
 }
 
-/* ─── ADMIN PAGES ─── */
+/* ─── ADMIN PAGES (batch upload) ─── */
 function AdminPages() {
   const [subjects, setSubjects] = useState([])
   const [pages, setPages] = useState([])
-  const [form, setForm] = useState({ subject_id: '', school_year: '1', section: '', page_number: '' })
-  const [file, setFile] = useState(null)
-  const [preview, setPreview] = useState(null)
+  const [form, setForm] = useState({ subject_id: '', school_year: '1', section: '' })
+  const [files, setFiles] = useState([])
   const [uploading, setUploading] = useState(false)
-  const [uploadMsg, setUploadMsg] = useState('')
+  const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0, currentFile: '', phase: '' })
+  const [uploadResults, setUploadResults] = useState(null)
   const [filterSubject, setFilterSubject] = useState('')
   const fileRef = useRef(null)
   const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY
@@ -208,31 +154,78 @@ function AdminPages() {
     setSubjects(subs || []); setPages(pgs || [])
   }
 
-  const handleFile = (files) => {
-    const f = files[0]; if (!f) return; setFile(f)
-    if (f.type.startsWith('image/')) { setPreview(URL.createObjectURL(f)) } else { setPreview(null) }
+  const handleFiles = (inputFiles) => {
+    const newFiles = Array.from(inputFiles)
+      .filter(f => f.type.startsWith('image/') || f.type === 'application/pdf')
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+    
+    // Preview with auto-detected page numbers
+    const processed = newFiles.map((f, i) => {
+      const detected = extractPageNumber(f.name)
+      return {
+        file: f,
+        name: f.name,
+        pageNumber: detected || (i + 1),
+        preview: f.type.startsWith('image/') ? URL.createObjectURL(f) : null,
+        id: Math.random().toString(36).substr(2, 9),
+      }
+    })
+    setFiles(prev => [...prev, ...processed])
   }
 
-  const uploadPage = async () => {
-    if (!form.subject_id || !form.page_number || !file) return
-    setUploading(true); setUploadMsg('📤 Caricamento immagine...')
-    try {
-      const ext = file.name.split('.').pop()
-      const fileName = `${form.subject_id}_${form.school_year}_${form.page_number}_${Date.now()}.${ext}`
-      const { error: uploadError } = await supabase.storage.from('pages').upload(fileName, file)
-      if (uploadError) throw uploadError
-      const imageUrl = `${supabaseUrl}/storage/v1/object/public/pages/${fileName}`
-      setUploadMsg('🧠 Estraggo il testo con l\'AI...')
-      let extractedText = ''
-      try { extractedText = await extractTextFromImage(file, apiKey) } catch (e) { console.error(e) }
-      setUploadMsg('💾 Salvataggio...')
-      await supabase.from('pages').insert({ subject_id: form.subject_id, school_year: form.school_year, section: form.section || null, page_number: parseInt(form.page_number), image_url: imageUrl, extracted_text: extractedText })
-      setUploadMsg('✅ Pagina caricata!')
-      setForm({ ...form, page_number: String(parseInt(form.page_number) + 1) })
-      setFile(null); setPreview(null); loadData()
-      setTimeout(() => setUploadMsg(''), 3000)
-    } catch (err) { console.error(err); setUploadMsg('❌ Errore. Riprova!') }
+  const updatePageNumber = (id, num) => {
+    setFiles(prev => prev.map(f => f.id === id ? { ...f, pageNumber: parseInt(num) || 0 } : f))
+  }
+
+  const removeFile = (id) => {
+    setFiles(prev => {
+      const f = prev.find(x => x.id === id)
+      if (f && f.preview) URL.revokeObjectURL(f.preview)
+      return prev.filter(x => x.id !== id)
+    })
+  }
+
+  const startBatchUpload = async () => {
+    if (!form.subject_id || files.length === 0) return
+    setUploading(true)
+    setUploadResults(null)
+    let success = 0, failed = 0
+
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i]
+      setUploadProgress({ current: i + 1, total: files.length, currentFile: f.name, phase: 'upload' })
+
+      try {
+        // 1. Upload image
+        const ext = f.file.name.split('.').pop()
+        const fileName = `${form.subject_id}_${form.school_year}_${f.pageNumber}_${Date.now()}.${ext}`
+        const { error: uploadError } = await supabase.storage.from('pages').upload(fileName, f.file)
+        if (uploadError) throw uploadError
+        const imageUrl = `${supabaseUrl}/storage/v1/object/public/pages/${fileName}`
+
+        // 2. Extract text
+        setUploadProgress({ current: i + 1, total: files.length, currentFile: f.name, phase: 'extract' })
+        let extractedText = ''
+        try { extractedText = await extractTextFromImage(f.file, apiKey) } catch (e) { console.error('Extract failed:', e) }
+
+        // 3. Save to database
+        setUploadProgress({ current: i + 1, total: files.length, currentFile: f.name, phase: 'save' })
+        await supabase.from('pages').insert({
+          subject_id: form.subject_id, school_year: form.school_year,
+          section: form.section || null, page_number: f.pageNumber,
+          image_url: imageUrl, extracted_text: extractedText,
+        })
+        success++
+      } catch (err) {
+        console.error('Upload failed for', f.name, err)
+        failed++
+      }
+    }
+
+    setUploadResults({ success, failed, total: files.length })
+    setFiles([])
     setUploading(false)
+    loadData()
   }
 
   const deletePage = async (page) => {
@@ -243,51 +236,123 @@ function AdminPages() {
   }
 
   const filteredPages = filterSubject ? pages.filter(p => p.subject_id === filterSubject) : pages
+  const progressPct = uploadProgress.total > 0 ? (uploadProgress.current / uploadProgress.total) * 100 : 0
+  const phaseLabels = { upload: '📤 Caricamento', extract: '🧠 Estrazione testo', save: '💾 Salvataggio' }
 
   return (
     <div>
       <h3 style={{ fontFamily: FONTS.heading, fontSize: '1.1rem', color: COLORS.dark, marginBottom: '0.75rem' }}>📸 Pagine dei libri ({pages.length})</h3>
+
+      {/* Upload form */}
       <div style={{ padding: '1rem', background: COLORS.bgPurple, borderRadius: '14px', marginBottom: '1rem' }}>
-        <p style={{ fontFamily: FONTS.heading, fontSize: '0.9rem', color: COLORS.purple, marginBottom: '0.6rem' }}>Carica una pagina</p>
-        <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
-          <select value={form.subject_id} onChange={e => setForm({...form, subject_id: e.target.value})}
+        <p style={{ fontFamily: FONTS.heading, fontSize: '0.9rem', color: COLORS.purple, marginBottom: '0.6rem' }}>Carica pagine</p>
+
+        {/* Subject, year, section */}
+        <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+          <select value={form.subject_id} onChange={e => setForm({ ...form, subject_id: e.target.value })}
             style={{ flex: 1, minWidth: '120px', padding: '0.5rem', borderRadius: '8px', border: `1px solid ${COLORS.grayBorder}`, fontFamily: FONTS.body, fontSize: '0.82rem' }}>
             <option value="">Materia...</option>
             {subjects.map(s => <option key={s.id} value={s.id}>{s.icon} {s.name}</option>)}
           </select>
-          <select value={form.school_year} onChange={e => setForm({...form, school_year: e.target.value})}
+          <select value={form.school_year} onChange={e => setForm({ ...form, school_year: e.target.value })}
             style={{ width: '70px', padding: '0.5rem', borderRadius: '8px', border: `1px solid ${COLORS.grayBorder}`, fontFamily: FONTS.body, fontSize: '0.82rem' }}>
-            {['1','2','3','4','5'].map(y => <option key={y} value={y}>{y}ª</option>)}
+            {['1', '2', '3', '4', '5'].map(y => <option key={y} value={y}>{y}ª</option>)}
           </select>
-          <input value={form.section} onChange={e => setForm({...form, section: e.target.value})} placeholder="Sez."
+          <input value={form.section} onChange={e => setForm({ ...form, section: e.target.value })} placeholder="Sez."
             style={{ width: '55px', padding: '0.5rem', borderRadius: '8px', border: `1px solid ${COLORS.grayBorder}`, fontFamily: FONTS.body, fontSize: '0.82rem' }} />
-          <input type="number" value={form.page_number} onChange={e => setForm({...form, page_number: e.target.value})} placeholder="Pag."
-            style={{ width: '65px', padding: '0.5rem', borderRadius: '8px', border: `1px solid ${COLORS.grayBorder}`, fontFamily: FONTS.body, fontSize: '0.82rem' }} />
         </div>
-        <div onClick={() => fileRef.current?.click()}
-          style={{ border: `2px dashed ${COLORS.purpleLight}`, borderRadius: '12px', padding: file ? '0.5rem' : '1rem', textAlign: 'center', cursor: 'pointer', marginBottom: '0.5rem', background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem', minHeight: file ? 'auto' : '80px' }}>
-          {preview ? <img src={preview} alt="anteprima" style={{ width: '60px', height: '80px', objectFit: 'cover', borderRadius: '6px' }} /> : file ? <span style={{ fontSize: '2rem' }}>📄</span> : null}
-          <div>
-            {file ? (
-              <><p style={{ fontFamily: FONTS.body, fontSize: '0.82rem', color: COLORS.dark, margin: 0 }}>{file.name}</p><p style={{ fontFamily: FONTS.body, fontSize: '0.7rem', color: COLORS.grayLight, margin: 0 }}>{(file.size / 1024).toFixed(0)} KB</p></>
-            ) : (
-              <><p style={{ fontFamily: FONTS.body, fontSize: '0.85rem', color: COLORS.purple, fontWeight: 600, margin: '0 0 0.2rem' }}>📷 Tocca per caricare</p><p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.grayLight, margin: 0 }}>Foto o PDF della pagina</p></>
-            )}
+
+        {/* File drop zone */}
+        {!uploading && (
+          <div onClick={() => fileRef.current?.click()}
+            onDrop={e => { e.preventDefault(); handleFiles(e.dataTransfer.files) }}
+            onDragOver={e => e.preventDefault()}
+            style={{ border: `2px dashed ${COLORS.purpleLight}`, borderRadius: '12px', padding: '1.25rem', textAlign: 'center', cursor: 'pointer', marginBottom: '0.75rem', background: 'white' }}>
+            <p style={{ fontFamily: FONTS.body, fontSize: '0.9rem', color: COLORS.purple, fontWeight: 600, margin: '0 0 0.2rem' }}>📷 Tocca o trascina le foto</p>
+            <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.grayLight, margin: 0 }}>Puoi selezionare più pagine contemporaneamente</p>
           </div>
-        </div>
-        <input ref={fileRef} type="file" accept="image/*,application/pdf" style={{ display: 'none' }} onChange={e => handleFile(e.target.files)} />
-        {uploadMsg && <p style={{ fontFamily: FONTS.body, fontSize: '0.78rem', margin: '0.4rem 0', color: uploadMsg.includes('✅') ? COLORS.green : uploadMsg.includes('❌') ? COLORS.orange : COLORS.purple }}>{uploadMsg}</p>}
-        <button onClick={uploadPage} disabled={uploading || !file || !form.subject_id || !form.page_number}
-          style={{ ...btnSuccess, width: '100%', padding: '0.6rem', fontSize: '0.9rem', marginTop: '0.3rem', opacity: (uploading || !file || !form.subject_id || !form.page_number) ? 0.5 : 1 }}>
-          {uploading ? uploadMsg : '⬆️ Carica pagina'}
-        </button>
+        )}
+        <input ref={fileRef} type="file" accept="image/*,application/pdf" multiple style={{ display: 'none' }}
+          onChange={e => handleFiles(e.target.files)} />
+
+        {/* File preview list */}
+        {files.length > 0 && !uploading && (
+          <div style={{ marginBottom: '0.75rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+              <p style={{ fontFamily: FONTS.heading, fontSize: '0.85rem', color: COLORS.dark, margin: 0 }}>{files.length} file selezionat{files.length === 1 ? 'o' : 'i'}</p>
+              <button onClick={() => setFiles([])} style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: COLORS.orange, background: 'none', border: 'none', cursor: 'pointer' }}>Rimuovi tutti</button>
+            </div>
+            <div style={{ maxHeight: '250px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+              {files.map(f => (
+                <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.6rem', background: 'white', borderRadius: '10px', border: `1px solid ${COLORS.grayBorder}` }}>
+                  {f.preview ? (
+                    <img src={f.preview} alt="" style={{ width: '40px', height: '50px', objectFit: 'cover', borderRadius: '6px', flexShrink: 0 }} />
+                  ) : (
+                    <div style={{ width: '40px', height: '50px', borderRadius: '6px', background: COLORS.bgPurple, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', flexShrink: 0 }}>📄</div>
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: COLORS.dark, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</p>
+                    <p style={{ fontFamily: FONTS.body, fontSize: '0.65rem', color: COLORS.grayLight, margin: 0 }}>{(f.file.size / 1024).toFixed(0)} KB</p>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexShrink: 0 }}>
+                    <span style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.gray }}>Pag.</span>
+                    <input type="number" value={f.pageNumber} onChange={e => updatePageNumber(f.id, e.target.value)}
+                      style={{ width: '50px', padding: '0.3rem', borderRadius: '6px', border: `1px solid ${COLORS.grayBorder}`, fontFamily: FONTS.body, fontSize: '0.8rem', textAlign: 'center' }} />
+                  </div>
+                  <button onClick={() => removeFile(f.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.85rem', opacity: 0.4, flexShrink: 0 }}>✕</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Upload progress */}
+        {uploading && (
+          <div style={{ marginBottom: '0.75rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+              <p style={{ fontFamily: FONTS.heading, fontSize: '0.85rem', color: COLORS.purple, margin: 0 }}>
+                {phaseLabels[uploadProgress.phase] || '...'} pagina {uploadProgress.current} di {uploadProgress.total}
+              </p>
+              <span style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: COLORS.grayLight }}>{Math.round(progressPct)}%</span>
+            </div>
+            {/* Progress bar */}
+            <div style={{ background: '#eee', borderRadius: '8px', height: '12px', overflow: 'hidden', marginBottom: '0.4rem' }}>
+              <div style={{ width: `${progressPct}%`, height: '100%', background: `linear-gradient(90deg, ${COLORS.purple}, ${COLORS.purpleLight})`, borderRadius: '8px', transition: 'width 0.5s ease' }} />
+            </div>
+            <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.grayLight, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {uploadProgress.currentFile}
+            </p>
+          </div>
+        )}
+
+        {/* Upload results */}
+        {uploadResults && (
+          <div style={{ padding: '0.6rem 0.85rem', borderRadius: '10px', marginBottom: '0.75rem', background: uploadResults.failed > 0 ? COLORS.bgYellow : COLORS.bgGreen, border: `1px solid ${uploadResults.failed > 0 ? 'rgba(253,203,110,0.2)' : 'rgba(0,184,148,0.2)'}` }}>
+            <p style={{ fontFamily: FONTS.body, fontSize: '0.82rem', color: uploadResults.failed > 0 ? '#e67e22' : COLORS.green, margin: 0 }}>
+              ✅ {uploadResults.success} pagin{uploadResults.success === 1 ? 'a' : 'e'} caricat{uploadResults.success === 1 ? 'a' : 'e'}
+              {uploadResults.failed > 0 && ` · ❌ ${uploadResults.failed} fallite`}
+            </p>
+          </div>
+        )}
+
+        {/* Upload button */}
+        {files.length > 0 && !uploading && (
+          <button onClick={startBatchUpload} disabled={!form.subject_id}
+            style={{ ...btnSuccess, width: '100%', padding: '0.7rem', fontSize: '0.95rem', opacity: !form.subject_id ? 0.5 : 1 }}>
+            ⬆️ Carica {files.length} pagin{files.length === 1 ? 'a' : 'e'}
+          </button>
+        )}
       </div>
+
+      {/* Filter */}
       <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
         <button onClick={() => setFilterSubject('')} style={{ padding: '0.3rem 0.6rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, fontSize: '0.75rem', background: !filterSubject ? COLORS.purple : COLORS.grayBorder, color: !filterSubject ? 'white' : COLORS.gray }}>Tutte</button>
         {subjects.map(s => (
           <button key={s.id} onClick={() => setFilterSubject(s.id)} style={{ padding: '0.3rem 0.6rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, fontSize: '0.75rem', background: filterSubject === s.id ? COLORS.purple : COLORS.grayBorder, color: filterSubject === s.id ? 'white' : COLORS.gray }}>{s.icon} {s.name}</button>
         ))}
       </div>
+
+      {/* Pages grid */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', maxHeight: '350px', overflowY: 'auto' }}>
         {filteredPages.map(p => (
           <div key={p.id} style={{ width: '90px', borderRadius: '10px', overflow: 'hidden', border: `1px solid ${COLORS.grayBorder}`, background: 'white', position: 'relative' }}>
@@ -313,15 +378,12 @@ export default function AdminPanel({ onBack }) {
     { id: 'subjects', label: '📚 Materie', component: <AdminSubjects /> },
     { id: 'users', label: '👥 Utenti', component: <AdminUsers /> },
   ]
-
   return (
     <div>
       <button onClick={onBack} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, fontSize: '0.9rem', color: COLORS.purpleLight, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>← Torna all'app</button>
       <h2 style={{ fontFamily: FONTS.heading, fontSize: '1.3rem', color: COLORS.dark, marginBottom: '1rem' }}>⚙️ Pannello Admin</h2>
       <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '1.25rem' }}>
-        {tabs.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{ flex: 1, padding: '0.5rem', borderRadius: '10px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, fontSize: '0.78rem', fontWeight: 600, background: tab === t.id ? COLORS.purple : COLORS.grayBorder, color: tab === t.id ? 'white' : COLORS.gray, transition: 'all 0.2s ease' }}>{t.label}</button>
-        ))}
+        {tabs.map(t => (<button key={t.id} onClick={() => setTab(t.id)} style={{ flex: 1, padding: '0.5rem', borderRadius: '10px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, fontSize: '0.78rem', fontWeight: 600, background: tab === t.id ? COLORS.purple : COLORS.grayBorder, color: tab === t.id ? 'white' : COLORS.gray, transition: 'all 0.2s ease' }}>{t.label}</button>))}
       </div>
       {tabs.find(t => t.id === tab)?.component}
     </div>
