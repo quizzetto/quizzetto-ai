@@ -229,9 +229,66 @@ function AdminPages() {
 
   const startBatchUpload = async () => {
     if (!form.subject_id || files.length === 0) return
+
+    // Check for duplicates first
+    const pageNumbers = files.map(f => f.pageNumber)
+    const { data: existing } = await supabase.from('pages')
+      .select('id, page_number, image_url')
+      .eq('subject_id', form.subject_id)
+      .eq('school_year', form.school_year)
+      .in('page_number', pageNumbers)
+    
+    let existingFiltered = existing || []
+    if (form.section) {
+      existingFiltered = existingFiltered.filter(e => true) // already filtered by query
+      const { data: existSec } = await supabase.from('pages')
+        .select('id, page_number, image_url')
+        .eq('subject_id', form.subject_id)
+        .eq('school_year', form.school_year)
+        .eq('section', form.section)
+        .in('page_number', pageNumbers)
+      existingFiltered = existSec || []
+    } else {
+      const { data: existNull } = await supabase.from('pages')
+        .select('id, page_number, image_url')
+        .eq('subject_id', form.subject_id)
+        .eq('school_year', form.school_year)
+        .is('section', null)
+        .in('page_number', pageNumbers)
+      existingFiltered = existNull || []
+    }
+
+    if (existingFiltered.length > 0) {
+      const dupPages = existingFiltered.map(e => e.page_number).sort((a, b) => a - b).join(', ')
+      const action = confirm(`Le pagine ${dupPages} esistono già per questa materia/classe. Vuoi sovrascriverle?\n\nOK = Sovrascrivi\nAnnulla = Salta le pagine duplicate`)
+      
+      if (action) {
+        // Delete existing duplicates (storage + db)
+        for (const ex of existingFiltered) {
+          const fn = ex.image_url.split('/pages/')[1]
+          if (fn) await supabase.storage.from('pages').remove([fn])
+          await supabase.from('pages').delete().eq('id', ex.id)
+        }
+      } else {
+        // Remove duplicate files from upload queue
+        const dupNums = new Set(existingFiltered.map(e => e.page_number))
+        const filtered = files.filter(f => !dupNums.has(f.pageNumber))
+        if (filtered.length === 0) {
+          setUploadResults({ success: 0, failed: 0, total: 0, skipped: files.length })
+          return
+        }
+        setFiles(filtered)
+        // Continue with filtered files
+      }
+    }
+
     setUploading(true)
     setUploadResults(null)
     let success = 0, failed = 0
+    const filesToUpload = files.filter(f => {
+      const dupNums = new Set((existingFiltered || []).map(e => e.page_number))
+      return true // all files at this point are OK (dups either overwritten or removed from queue)
+    })
 
     for (let i = 0; i < files.length; i++) {
       const f = files[i]
