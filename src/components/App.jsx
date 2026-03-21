@@ -9,8 +9,9 @@ import TimerSetup from './TimerSetup'
 import PaymentWall from './PaymentWall'
 import AdminPanel from './AdminPanel'
 import PhotoUpload from './PhotoUpload'
+import Tutorial from './Tutorial'
 
-const PHASES = { HOME: 'home', BROWSE: 'browse', PAGES: 'pages', UPLOAD: 'upload', LOADING: 'loading', SETUP: 'setup', QUIZ: 'quiz', RESULTS: 'results', PAYMENT: 'payment', ADMIN: 'admin' }
+const PHASES = { HOME: 'home', BROWSE: 'browse', PAGES: 'pages', UPLOAD: 'upload', LOADING: 'loading', SETUP: 'setup', QUIZ: 'quiz', RESULTS: 'results', PAYMENT: 'payment', ADMIN: 'admin', TUTORIAL: 'tutorial' }
 const loadingMessages = ['📚 Sto leggendo le pagine...', '🧠 Analizzo gli argomenti...', '✏️ Preparo le domande...', '🎯 Quasi pronto!']
 
 export default function App({ user, profile }) {
@@ -214,6 +215,7 @@ export default function App({ user, profile }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <p style={{ fontFamily: FONTS.heading, fontSize: '1.1rem', color: COLORS.dark, margin: 0 }}>Ciao {profile.child_name}! 👋</p>
         <div style={{ display: 'flex', gap: '0.3rem' }}>
+          <button onClick={() => setPhase(PHASES.TUTORIAL)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: '0.2rem' }} title="Tutorial">❓</button>
           {profile.is_admin && <button onClick={() => setPhase(PHASES.ADMIN)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: '0.2rem' }}>⚙️</button>}
           <button onClick={handleLogout} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: '0.2rem' }}>🚪</button>
         </div>
@@ -355,7 +357,7 @@ export default function App({ user, profile }) {
     <div style={{ minHeight: '100vh' }}>
       <Header />
 
-      {quiz && ![PHASES.HOME, PHASES.BROWSE, PHASES.PAGES, PHASES.UPLOAD, PHASES.LOADING, PHASES.PAYMENT, PHASES.ADMIN].includes(phase) && (
+      {quiz && ![PHASES.HOME, PHASES.BROWSE, PHASES.PAGES, PHASES.UPLOAD, PHASES.LOADING, PHASES.PAYMENT, PHASES.ADMIN, PHASES.TUTORIAL].includes(phase) && (
         <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
           <span style={{ fontFamily: FONTS.heading, background: 'white', padding: '0.35rem 0.9rem', borderRadius: '20px', fontSize: '0.82rem', color: COLORS.purple, boxShadow: '0 2px 10px rgba(0,0,0,0.05)', border: '1px solid rgba(108,92,231,0.12)' }}>📖 {quiz.topic}</span>
         </div>
@@ -373,6 +375,7 @@ export default function App({ user, profile }) {
           {phase === PHASES.RESULTS && quiz && <QuizResults quiz={quiz} answers={answers} userId={user.id} onRetryWrong={handleRetryWrong} onHome={goHome} />}
           {phase === PHASES.PAYMENT && <PaymentWall onBack={goHome} />}
           {phase === PHASES.ADMIN && <AdminPanel onBack={goHome} />}
+          {phase === PHASES.TUTORIAL && <Tutorial onClose={goHome} />}
         </div>
         <p style={{ textAlign: 'center', fontFamily: FONTS.body, fontSize: '0.7rem', color: COLORS.grayLight, marginTop: '1.5rem' }}>Quizzetto AI ✨</p>
       </div>
