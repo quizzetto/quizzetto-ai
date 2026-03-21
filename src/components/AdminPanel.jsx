@@ -51,6 +51,8 @@ function getNextMonthDate(fromDate) {
 function AdminUsers() {
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState(null)
+  const [editForm, setEditForm] = useState({ child_name: '', school_year: '1', section: '' })
   useEffect(() => { loadUsers() }, [])
   const loadUsers = async () => { const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false }); setUsers(data || []); setLoading(false) }
   const toggleFreeAccess = async (userId, current) => { await supabase.from('profiles').update({ is_free_access: !current }).eq('id', userId); loadUsers() }
@@ -60,6 +62,21 @@ function AdminUsers() {
   const formatDate = (d) => d ? new Date(d).toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' }) : ''
   const isExpired = (d) => d ? new Date(d) < new Date() : false
 
+  const startEdit = (u) => {
+    setEditing(u.id)
+    setEditForm({ child_name: u.child_name || '', school_year: u.school_year || '1', section: u.section || '' })
+  }
+
+  const saveEdit = async (userId) => {
+    await supabase.from('profiles').update({
+      child_name: editForm.child_name.trim() || 'Bambino',
+      school_year: editForm.school_year,
+      section: editForm.section.trim().toUpperCase() || null,
+    }).eq('id', userId)
+    setEditing(null)
+    loadUsers()
+  }
+
   if (loading) return <p style={{ fontFamily: FONTS.body, color: COLORS.grayLight }}>Caricamento...</p>
   return (
     <div>
@@ -67,23 +84,48 @@ function AdminUsers() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '400px', overflowY: 'auto' }}>
         {users.map(u => {
           const expired = u.has_paid && isExpired(u.paid_until)
+          const isEditing = editing === u.id
           return (
             <div key={u.id} style={{ padding: '0.75rem', borderRadius: '12px', background: u.is_admin ? COLORS.bgPurple : expired ? 'rgba(255,107,107,0.04)' : 'white', border: `1px solid ${expired ? 'rgba(255,107,107,0.2)' : COLORS.grayBorder}` }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
                 <div>
                   <span style={{ fontFamily: FONTS.heading, fontSize: '0.9rem', color: COLORS.dark }}>{u.child_name}</span>
                   {u.is_admin && <span style={{ marginLeft: '0.4rem', fontSize: '0.7rem', background: COLORS.purple, color: 'white', padding: '0.1rem 0.4rem', borderRadius: '8px' }}>ADMIN</span>}
+                  <span style={{ marginLeft: '0.4rem', fontFamily: FONTS.body, fontSize: '0.7rem', color: COLORS.grayLight }}>{u.school_year}ª{u.section ? ` ${u.section}` : ''}</span>
                 </div>
                 <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '10px', fontFamily: FONTS.body, background: u.is_free_access ? COLORS.bgGreen : u.has_paid && !expired ? COLORS.bgGreen : u.has_paid && expired ? COLORS.bgRed : u.free_sessions_used < u.max_free_sessions ? COLORS.bgYellow : COLORS.bgRed, color: u.is_free_access ? COLORS.green : u.has_paid && !expired ? COLORS.green : u.has_paid && expired ? COLORS.orange : u.free_sessions_used < u.max_free_sessions ? '#e67e22' : COLORS.orange }}>
                   {u.is_free_access ? 'Gratuito' : u.has_paid && !expired ? `Pagato → ${formatDate(u.paid_until)}` : u.has_paid && expired ? `Scaduto ${formatDate(u.paid_until)}` : `${u.free_sessions_used}/${u.max_free_sessions} gratis`}
                 </span>
               </div>
               <p style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: COLORS.grayLight, margin: '0 0 0.5rem' }}>{u.email}</p>
+              
+              {/* Edit form */}
+              {isEditing && (
+                <div style={{ padding: '0.6rem', background: COLORS.bgPurple, borderRadius: '10px', marginBottom: '0.5rem' }}>
+                  <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.4rem', flexWrap: 'wrap' }}>
+                    <input value={editForm.child_name} onChange={e => setEditForm({...editForm, child_name: e.target.value})} placeholder="Nome"
+                      style={{ flex: 1, minWidth: '100px', padding: '0.4rem', borderRadius: '6px', border: `1px solid ${COLORS.grayBorder}`, fontFamily: FONTS.body, fontSize: '0.8rem' }} />
+                    <select value={editForm.school_year} onChange={e => setEditForm({...editForm, school_year: e.target.value})}
+                      style={{ width: '60px', padding: '0.4rem', borderRadius: '6px', border: `1px solid ${COLORS.grayBorder}`, fontFamily: FONTS.body, fontSize: '0.8rem' }}>
+                      {['1','2','3','4','5'].map(y => <option key={y} value={y}>{y}ª</option>)}
+                    </select>
+                    <input value={editForm.section} onChange={e => setEditForm({...editForm, section: e.target.value})} placeholder="Sez."
+                      maxLength={3}
+                      style={{ width: '50px', padding: '0.4rem', borderRadius: '6px', border: `1px solid ${COLORS.grayBorder}`, fontFamily: FONTS.body, fontSize: '0.8rem', textTransform: 'uppercase' }} />
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.3rem' }}>
+                    <button onClick={() => saveEdit(u.id)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.6rem', borderRadius: '6px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: COLORS.green, color: 'white' }}>✓ Salva</button>
+                    <button onClick={() => setEditing(null)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.6rem', borderRadius: '6px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: COLORS.grayBorder, color: COLORS.gray }}>Annulla</button>
+                  </div>
+                </div>
+              )}
+
               {!u.is_admin && (
                 <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                  <button onClick={() => startEdit(u)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.5rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: isEditing ? COLORS.purple : COLORS.grayBorder, color: isEditing ? 'white' : COLORS.gray }}>✏️ Modifica</button>
                   <button onClick={() => toggleFreeAccess(u.id, u.is_free_access)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.5rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: u.is_free_access ? COLORS.green : COLORS.grayBorder, color: u.is_free_access ? 'white' : COLORS.gray }}>{u.is_free_access ? '✓ Gratuito' : 'Rendi gratuito'}</button>
                   {(!u.has_paid || expired) ? (
-                    <button onClick={() => activatePaid(u.id)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.5rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: COLORS.purple, color: 'white' }}>{expired ? '🔄 Rinnova (+30gg)' : '💳 Attiva pagamento'}</button>
+                    <button onClick={() => activatePaid(u.id)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.5rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: COLORS.purple, color: 'white' }}>{expired ? '🔄 Rinnova' : '💳 Attiva'}</button>
                   ) : (
                     <button onClick={() => deactivatePaid(u.id)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.5rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: COLORS.purple, color: 'white' }}>✓ Pagato</button>
                   )}
