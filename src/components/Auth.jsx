@@ -55,7 +55,7 @@ export default function Auth() {
           notify_weekly: notifyWeekly,
         }).eq('id', data.user.id)
       }
-      setSuccess('Registrazione completata!')
+      setSuccess('Registrazione completata! Controlla la tua email per confermare l\'account. Se non la trovi, controlla anche nella cartella spam.')
     }
     setLoading(false)
   }
