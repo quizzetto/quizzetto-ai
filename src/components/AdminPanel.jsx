@@ -277,6 +277,40 @@ function AdminPages() {
     await supabase.from('pages').delete().eq('id', page.id); loadData()
   }
 
+  // Bulk edit
+  const [bulkEdit, setBulkEdit] = useState(false)
+  const [bulkFrom, setBulkFrom] = useState({ subject_id: '', school_year: '', section: '' })
+  const [bulkTo, setBulkTo] = useState({ school_year: '', section: '' })
+  const [bulkMsg, setBulkMsg] = useState('')
+
+  const executeBulkEdit = async () => {
+    if (!bulkFrom.subject_id) return
+    let query = supabase.from('pages').update({
+      school_year: bulkTo.school_year || undefined,
+      section: bulkTo.section === '__null__' ? null : (bulkTo.section || undefined),
+    }).eq('subject_id', bulkFrom.subject_id)
+    
+    if (bulkFrom.school_year) query = query.eq('school_year', bulkFrom.school_year)
+    if (bulkFrom.section === '__null__') query = query.is('section', null)
+    else if (bulkFrom.section) query = query.eq('section', bulkFrom.section)
+
+    const updateData = {}
+    if (bulkTo.school_year) updateData.school_year = bulkTo.school_year
+    if (bulkTo.section === '__null__') updateData.section = null
+    else if (bulkTo.section) updateData.section = bulkTo.section.toUpperCase()
+
+    if (Object.keys(updateData).length === 0) { setBulkMsg('❌ Seleziona almeno un campo da modificare'); return }
+
+    let q = supabase.from('pages').update(updateData).eq('subject_id', bulkFrom.subject_id)
+    if (bulkFrom.school_year) q = q.eq('school_year', bulkFrom.school_year)
+    if (bulkFrom.section === '__null__') q = q.is('section', null)
+    else if (bulkFrom.section) q = q.eq('section', bulkFrom.section)
+
+    const { error, count } = await q
+    if (error) { setBulkMsg('❌ Errore: ' + error.message) }
+    else { setBulkMsg('✅ Pagine aggiornate!'); loadData(); setTimeout(() => setBulkMsg(''), 3000) }
+  }
+
   const filteredPages = filterSubject ? pages.filter(p => p.subject_id === filterSubject) : pages
   const progressPct = uploadProgress.total > 0 ? (uploadProgress.current / uploadProgress.total) * 100 : 0
   const phaseLabels = { upload: '📤 Caricamento', extract: '🧠 Estrazione testo', save: '💾 Salvataggio' }
@@ -387,12 +421,64 @@ function AdminPages() {
       </div>
 
       {/* Filter */}
-      <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
         <button onClick={() => setFilterSubject('')} style={{ padding: '0.3rem 0.6rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, fontSize: '0.75rem', background: !filterSubject ? COLORS.purple : COLORS.grayBorder, color: !filterSubject ? 'white' : COLORS.gray }}>Tutte</button>
         {subjects.map(s => (
           <button key={s.id} onClick={() => setFilterSubject(s.id)} style={{ padding: '0.3rem 0.6rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, fontSize: '0.75rem', background: filterSubject === s.id ? COLORS.purple : COLORS.grayBorder, color: filterSubject === s.id ? 'white' : COLORS.gray }}>{s.icon} {s.name}</button>
         ))}
+        <button onClick={() => setBulkEdit(!bulkEdit)} style={{ marginLeft: 'auto', padding: '0.3rem 0.6rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, fontSize: '0.72rem', background: bulkEdit ? COLORS.orange : COLORS.grayBorder, color: bulkEdit ? 'white' : COLORS.gray }}>
+          ✏️ Modifica in blocco
+        </button>
       </div>
+
+      {/* Bulk edit panel */}
+      {bulkEdit && (
+        <div style={{ padding: '0.85rem', background: 'rgba(253,203,110,0.08)', borderRadius: '12px', border: '1px solid rgba(253,203,110,0.2)', marginBottom: '0.75rem' }}>
+          <p style={{ fontFamily: FONTS.heading, fontSize: '0.85rem', color: '#e67e22', marginBottom: '0.5rem' }}>Modifica in blocco classe/sezione</p>
+          
+          <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.gray, marginBottom: '0.3rem' }}>Da (filtro pagine):</p>
+          <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
+            <select value={bulkFrom.subject_id} onChange={e => setBulkFrom({...bulkFrom, subject_id: e.target.value})}
+              style={{ flex: 1, minWidth: '100px', padding: '0.4rem', borderRadius: '6px', border: `1px solid ${COLORS.grayBorder}`, fontFamily: FONTS.body, fontSize: '0.78rem' }}>
+              <option value="">Materia...</option>
+              {subjects.map(s => <option key={s.id} value={s.id}>{s.icon} {s.name}</option>)}
+            </select>
+            <select value={bulkFrom.school_year} onChange={e => setBulkFrom({...bulkFrom, school_year: e.target.value})}
+              style={{ width: '60px', padding: '0.4rem', borderRadius: '6px', border: `1px solid ${COLORS.grayBorder}`, fontFamily: FONTS.body, fontSize: '0.78rem' }}>
+              <option value="">Cl.</option>
+              {['1','2','3','4','5'].map(y => <option key={y} value={y}>{y}ª</option>)}
+            </select>
+            <select value={bulkFrom.section} onChange={e => setBulkFrom({...bulkFrom, section: e.target.value})}
+              style={{ width: '80px', padding: '0.4rem', borderRadius: '6px', border: `1px solid ${COLORS.grayBorder}`, fontFamily: FONTS.body, fontSize: '0.78rem' }}>
+              <option value="">Sez...</option>
+              <option value="__null__">Nessuna</option>
+              {[...new Set(pages.map(p => p.section).filter(Boolean))].sort().map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+
+          <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.gray, marginBottom: '0.3rem' }}>A (nuovi valori):</p>
+          <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
+            <select value={bulkTo.school_year} onChange={e => setBulkTo({...bulkTo, school_year: e.target.value})}
+              style={{ flex: 1, padding: '0.4rem', borderRadius: '6px', border: `1px solid ${COLORS.grayBorder}`, fontFamily: FONTS.body, fontSize: '0.78rem' }}>
+              <option value="">Classe (invariata)</option>
+              {['1','2','3','4','5'].map(y => <option key={y} value={y}>{y}ª</option>)}
+            </select>
+            <select value={bulkTo.section} onChange={e => setBulkTo({...bulkTo, section: e.target.value})}
+              style={{ flex: 1, padding: '0.4rem', borderRadius: '6px', border: `1px solid ${COLORS.grayBorder}`, fontFamily: FONTS.body, fontSize: '0.78rem' }}>
+              <option value="">Sezione (invariata)</option>
+              <option value="__null__">Nessuna (tutte)</option>
+              {['A','B','C','D','E','F','G','H'].map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+
+          {bulkMsg && <p style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: bulkMsg.includes('✅') ? COLORS.green : COLORS.orange, marginBottom: '0.4rem' }}>{bulkMsg}</p>}
+
+          <div style={{ display: 'flex', gap: '0.35rem' }}>
+            <button onClick={executeBulkEdit} style={{ flex: 1, fontSize: '0.78rem', padding: '0.4rem', borderRadius: '6px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: '#e67e22', color: 'white' }}>✅ Applica modifiche</button>
+            <button onClick={() => { setBulkEdit(false); setBulkMsg('') }} style={{ fontSize: '0.78rem', padding: '0.4rem 0.8rem', borderRadius: '6px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: COLORS.grayBorder, color: COLORS.gray }}>Chiudi</button>
+          </div>
+        </div>
+      )}
 
       {/* Pages grid */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', maxHeight: '350px', overflowY: 'auto' }}>

@@ -27,6 +27,8 @@ export default function App({ user, profile: initialProfile }) {
   const [selectedPages, setSelectedPages] = useState([])
   const [savedQuizzes, setSavedQuizzes] = useState([])
   const [selectedSubject, setSelectedSubject] = useState(null)
+  const [availableSections, setAvailableSections] = useState([])
+  const [sectionFilter, setSectionFilter] = useState(null)
   const [access, setAccess] = useState(null)
   const [dailyLimit, setDailyLimit] = useState(null)
   const [loadingMsgIdx, setLoadingMsgIdx] = useState(0)
@@ -72,7 +74,25 @@ export default function App({ user, profile: initialProfile }) {
       query = query.or(`section.is.null,section.eq.${profile.section}`)
     }
     const { data } = await query.order('page_number')
-    setAvailablePages(data || [])
+    const allPages = data || []
+    
+    // Detect distinct sections
+    const sections = [...new Set(allPages.map(p => p.section))]
+    setAvailableSections(sections)
+    
+    // If only one section (or all null), show directly
+    if (sections.length <= 1) {
+      setSectionFilter(null)
+      setAvailablePages(allPages)
+    } else {
+      // Multiple sections exist, let user pick
+      setSectionFilter('__choose__')
+      setAvailablePages(allPages)
+    }
+  }
+
+  const filterPagesBySection = (sec) => {
+    setSectionFilter(sec)
   }
 
   const togglePageSelection = (page) => {
@@ -205,7 +225,7 @@ export default function App({ user, profile: initialProfile }) {
   }
 
   const goHome = () => {
-    setQuiz(null); setAnswers([]); setError(null); setSelectedSubject(null); setSelectedPages([]); setAvailablePages([])
+    setQuiz(null); setAnswers([]); setError(null); setSelectedSubject(null); setSelectedPages([]); setAvailablePages([]); setSectionFilter(null); setAvailableSections([])
     loadSavedQuizzes(); loadDailyLimit(); loadAccess(); setPhase(PHASES.HOME)
   }
 
@@ -292,63 +312,97 @@ export default function App({ user, profile: initialProfile }) {
   )
 
   // ─── RENDER PAGE CAROUSEL ───
-  const renderPageCarousel = () => (
+  const renderPageCarousel = () => {
+    const filteredPages = sectionFilter === '__choose__' ? [] :
+      sectionFilter === null ? availablePages :
+      availablePages.filter(p => p.section === sectionFilter)
+
+    return (
     <div>
-      <button onClick={() => setPhase(PHASES.BROWSE)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, fontSize: '0.9rem', color: COLORS.purpleLight, marginBottom: '1rem' }}>← Indietro</button>
+      <button onClick={() => { if (sectionFilter !== null && sectionFilter !== '__choose__' && availableSections.length > 1) { setSectionFilter('__choose__'); setSelectedPages([]) } else { setPhase(PHASES.BROWSE) } }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, fontSize: '0.9rem', color: COLORS.purpleLight, marginBottom: '1rem' }}>← Indietro</button>
       <h3 style={{ fontFamily: FONTS.heading, fontSize: '1.2rem', color: COLORS.dark, marginBottom: '0.3rem' }}>{selectedSubject?.icon} {selectedSubject?.name}</h3>
       <p style={{ fontFamily: FONTS.body, fontSize: '0.85rem', color: COLORS.grayLight, marginBottom: '1rem' }}>Su quali pagine ti vuoi mettere alla prova?</p>
 
-      {availablePages.length === 0 ? (
-        <p style={{ fontFamily: FONTS.body, fontSize: '0.9rem', color: COLORS.grayLight, textAlign: 'center', padding: '2rem 0' }}>Nessuna pagina disponibile.</p>
-      ) : (
-        <>
-          {selectedPages.length > 0 && (
-            <div style={{ padding: '0.6rem 0.85rem', background: COLORS.bgPurple, borderRadius: '12px', marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <p style={{ fontFamily: FONTS.heading, fontSize: '0.9rem', color: COLORS.purple, margin: 0 }}>{selectedPages.length} pagin{selectedPages.length === 1 ? 'a' : 'e'} selezionat{selectedPages.length === 1 ? 'a' : 'e'}</p>
-                <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.grayLight, margin: 0 }}>{getProposedCount(selectedPages.length)} domande</p>
-              </div>
-              <button onClick={() => setSelectedPages([])} style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: COLORS.orange, background: 'none', border: 'none', cursor: 'pointer' }}>Deseleziona</button>
-            </div>
-          )}
-
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem', justifyContent: 'center', marginBottom: '1.25rem', maxHeight: '380px', overflowY: 'auto', padding: '0.25rem' }}>
-            {availablePages.map(p => {
-              const isSelected = selectedPages.find(sp => sp.id === p.id)
-              return (
-                <div key={p.id} onClick={() => togglePageSelection(p)}
-                  style={{
-                    width: '100px', borderRadius: '12px', overflow: 'hidden', cursor: 'pointer',
-                    border: isSelected ? `3px solid ${COLORS.purple}` : `2px solid ${COLORS.grayBorder}`,
-                    background: 'white', transition: 'all 0.2s ease',
-                    transform: isSelected ? 'scale(1.03)' : 'scale(1)',
-                    boxShadow: isSelected ? '0 4px 15px rgba(108,92,231,0.25)' : '0 2px 6px rgba(0,0,0,0.05)',
-                  }}>
-                  <div style={{ position: 'relative' }}>
-                    <img src={p.image_url} alt={`pag ${p.page_number}`} style={{ width: '100%', height: '130px', objectFit: 'cover', display: 'block' }}
-                      onError={e => { e.target.style.background = COLORS.bgPurple }} />
-                    {isSelected && (
-                      <div style={{ position: 'absolute', top: '5px', right: '5px', width: '24px', height: '24px', borderRadius: '50%', background: COLORS.purple, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '0.75rem', fontWeight: 700, boxShadow: '0 2px 6px rgba(0,0,0,0.3)' }}>✓</div>
-                    )}
-                  </div>
-                  <div style={{ padding: '0.35rem', textAlign: 'center' }}>
-                    <p style={{ fontFamily: FONTS.heading, fontSize: '0.82rem', color: isSelected ? COLORS.purple : COLORS.dark, margin: 0 }}>Pag. {p.page_number}</p>
-                  </div>
+      {/* Section selector */}
+      {sectionFilter === '__choose__' && availableSections.length > 1 && (
+        <div>
+          <p style={{ fontFamily: FONTS.heading, fontSize: '0.95rem', color: COLORS.dark, marginBottom: '0.75rem' }}>Scegli il libro:</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+            {availableSections.map(sec => (
+              <button key={sec || '__all__'} onClick={() => { filterPagesBySection(sec); setSelectedPages([]) }}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1rem', background: 'white', border: `2px solid ${COLORS.grayBorder}`, borderRadius: '14px', cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s ease' }}>
+                <span style={{ fontSize: '1.5rem' }}>📗</span>
+                <div>
+                  <p style={{ fontFamily: FONTS.heading, fontSize: '1rem', color: COLORS.dark, margin: 0 }}>
+                    Classe {profile.school_year}ª{sec ? ` ${sec}` : ' (tutte le sezioni)'}
+                  </p>
+                  <p style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: COLORS.grayLight, margin: 0 }}>
+                    {availablePages.filter(p => p.section === sec).length} pagine
+                  </p>
                 </div>
-              )
-            })}
+              </button>
+            ))}
           </div>
+        </div>
+      )}
 
-          {selectedPages.length > 0 && (
-            <button onClick={handleGenerateFromPages} {...pressStyle}
-              style={{ ...btnPink, width: '100%', padding: '1rem', fontSize: '1.1rem' }}>
-              🚀 Crea il Quiz! ({selectedPages.length} pagin{selectedPages.length === 1 ? 'a' : 'e'})
-            </button>
+      {/* Page carousel */}
+      {sectionFilter !== '__choose__' && (
+        <>
+          {filteredPages.length === 0 ? (
+            <p style={{ fontFamily: FONTS.body, fontSize: '0.9rem', color: COLORS.grayLight, textAlign: 'center', padding: '2rem 0' }}>Nessuna pagina disponibile.</p>
+          ) : (
+            <>
+              {selectedPages.length > 0 && (
+                <div style={{ padding: '0.6rem 0.85rem', background: COLORS.bgPurple, borderRadius: '12px', marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <p style={{ fontFamily: FONTS.heading, fontSize: '0.9rem', color: COLORS.purple, margin: 0 }}>{selectedPages.length} pagin{selectedPages.length === 1 ? 'a' : 'e'} selezionat{selectedPages.length === 1 ? 'a' : 'e'}</p>
+                    <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.grayLight, margin: 0 }}>{getProposedCount(selectedPages.length)} domande</p>
+                  </div>
+                  <button onClick={() => setSelectedPages([])} style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: COLORS.orange, background: 'none', border: 'none', cursor: 'pointer' }}>Deseleziona</button>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem', justifyContent: 'center', marginBottom: '1.25rem', maxHeight: '380px', overflowY: 'auto', padding: '0.25rem' }}>
+                {filteredPages.map(p => {
+                  const isSelected = selectedPages.find(sp => sp.id === p.id)
+                  return (
+                    <div key={p.id} onClick={() => togglePageSelection(p)}
+                      style={{
+                        width: '100px', borderRadius: '12px', overflow: 'hidden', cursor: 'pointer',
+                        border: isSelected ? `3px solid ${COLORS.purple}` : `2px solid ${COLORS.grayBorder}`,
+                        background: 'white', transition: 'all 0.2s ease',
+                        transform: isSelected ? 'scale(1.03)' : 'scale(1)',
+                        boxShadow: isSelected ? '0 4px 15px rgba(108,92,231,0.25)' : '0 2px 6px rgba(0,0,0,0.05)',
+                      }}>
+                      <div style={{ position: 'relative' }}>
+                        <img src={p.image_url} alt={`pag ${p.page_number}`} style={{ width: '100%', height: '130px', objectFit: 'cover', display: 'block' }}
+                          onError={e => { e.target.style.background = COLORS.bgPurple }} />
+                        {isSelected && (
+                          <div style={{ position: 'absolute', top: '5px', right: '5px', width: '24px', height: '24px', borderRadius: '50%', background: COLORS.purple, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '0.75rem', fontWeight: 700, boxShadow: '0 2px 6px rgba(0,0,0,0.3)' }}>✓</div>
+                        )}
+                      </div>
+                      <div style={{ padding: '0.35rem', textAlign: 'center' }}>
+                        <p style={{ fontFamily: FONTS.heading, fontSize: '0.82rem', color: isSelected ? COLORS.purple : COLORS.dark, margin: 0 }}>Pag. {p.page_number}</p>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {selectedPages.length > 0 && (
+                <button onClick={handleGenerateFromPages} {...pressStyle}
+                  style={{ ...btnPink, width: '100%', padding: '1rem', fontSize: '1.1rem' }}>
+                  🚀 Crea il Quiz! ({selectedPages.length} pagin{selectedPages.length === 1 ? 'a' : 'e'})
+                </button>
+              )}
+            </>
           )}
         </>
       )}
     </div>
-  )
+    )
+  }
 
   // ─── RENDER LOADING ───
   const renderLoading = () => (
