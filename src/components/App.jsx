@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { generateQuizFromText, generateQuizFromImages } from '../lib/ai'
+import { generateQuizFromText, generateQuizFromImages, pickRandomQuestions } from '../lib/ai'
 import { COLORS, FONTS, btnPrimary, btnSuccess, btnPink, btnDanger, pressStyle, card } from '../lib/styles'
 import Header from './Header'
 import QuizPlay from './QuizPlay'
@@ -116,7 +116,10 @@ export default function App({ user, profile }) {
         free_sessions_used: (access?.free_sessions_used || 0) + 1,
       }).eq('id', user.id)
 
-      quizData.dbId = saved?.id; setQuiz(quizData); setPhase(PHASES.SETUP)
+      quizData.dbId = saved?.id
+      quizData.allQuestions = quizData.questions
+      quizData.questions = pickRandomQuestions(quizData.questions, 10)
+      setQuiz(quizData); setPhase(PHASES.SETUP)
     } catch (err) {
       console.error(err); setError('Ops! Qualcosa è andato storto. Riprova!'); setPhase(PHASES.HOME)
     }
@@ -139,14 +142,21 @@ export default function App({ user, profile }) {
         free_sessions_used: (access?.free_sessions_used || 0) + 1,
       }).eq('id', user.id)
 
-      quizData.dbId = saved?.id; setQuiz(quizData); setPhase(PHASES.SETUP)
+      quizData.dbId = saved?.id
+      quizData.allQuestions = quizData.questions
+      quizData.questions = pickRandomQuestions(quizData.questions, 10)
+      setQuiz(quizData); setPhase(PHASES.SETUP)
     } catch (err) {
       console.error(err); setError('Ops! Qualcosa è andato storto. Riprova con foto più chiare! 📸'); setPhase(PHASES.HOME)
     }
     clearInterval(msgTimer)
   }
 
-  const handleLoadSaved = (savedQuiz) => { setQuiz({ ...savedQuiz, dbId: savedQuiz.id }); setPhase(PHASES.SETUP) }
+  const handleLoadSaved = (savedQuiz) => {
+    const randomQuestions = pickRandomQuestions(savedQuiz.questions, 10)
+    setQuiz({ ...savedQuiz, dbId: savedQuiz.id, allQuestions: savedQuiz.questions, questions: randomQuestions })
+    setPhase(PHASES.SETUP)
+  }
 
   const handleFinish = async (ans) => {
     setAnswers(ans)
