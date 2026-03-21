@@ -96,6 +96,29 @@ export default function App({ user, profile }) {
 
   const handleGenerateFromPages = async () => {
     if (selectedPages.length === 0) return
+
+    // Check if a quiz already exists for these pages
+    const pageStart = selectedPages[0].page_number
+    const pageEnd = selectedPages[selectedPages.length - 1].page_number
+    const { data: existingQuizzes } = await supabase.from('quizzes')
+      .select('*')
+      .eq('subject_id', selectedSubject?.id)
+      .eq('page_start', pageStart)
+      .eq('page_end', pageEnd)
+      .eq('source_type', 'pages')
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    if (existingQuizzes && existingQuizzes.length > 0) {
+      // Use existing quiz with random questions
+      const existing = existingQuizzes[0]
+      const proposedCount = getProposedCount(selectedPages.length)
+      const randomQuestions = pickRandomQuestions(existing.questions, proposedCount)
+      setQuiz({ ...existing, dbId: existing.id, allQuestions: existing.questions, questions: randomQuestions })
+      setPhase(PHASES.SETUP)
+      return
+    }
+
     if (!(await checkCanGenerate())) return
     setPhase(PHASES.LOADING); setError(null)
     const msgTimer = setInterval(() => setLoadingMsgIdx(p => (p + 1) % loadingMessages.length), 2500)
