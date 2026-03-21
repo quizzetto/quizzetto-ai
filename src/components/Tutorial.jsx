@@ -15,6 +15,12 @@ const tutorialSteps = [
     target: 'bambino',
   },
   {
+    emoji: '📗',
+    title: 'Scegli il libro',
+    description: 'Se per la tua materia ci sono più libri diversi (ad esempio per sezioni diverse), potrai scegliere quale libro usare.',
+    target: 'bambino',
+  },
+  {
     emoji: '📸',
     title: 'Seleziona le pagine',
     description: 'Vedrai le foto delle pagine del tuo libro. Tocca quelle che hai studiato per selezionarle — puoi sceglierne una o più!',
@@ -23,7 +29,7 @@ const tutorialSteps = [
   {
     emoji: '🚀',
     title: 'Crea il Quiz!',
-    description: 'Tocca il pulsante "Crea il Quiz" e Quizzetto preparerà delle domande proprio sugli argomenti che hai studiato.',
+    description: 'Tocca il pulsante "Crea il Quiz" e Quizzetto preparerà delle domande proprio sugli argomenti che hai studiato. Più pagine scegli, più domande avrai!',
     target: 'bambino',
   },
   {
@@ -57,6 +63,12 @@ const tutorialSteps = [
     target: 'bambino',
   },
   {
+    emoji: '👤',
+    title: 'Il tuo profilo',
+    description: 'Tocca l\'icona 👤 nella home per modificare il nome, la classe e la sezione. Importante: aggiorna la classe quando passi all\'anno successivo per vedere i libri giusti!',
+    target: 'genitore',
+  },
+  {
     emoji: '👨‍👩‍👧',
     title: 'Informazioni per i genitori',
     description: 'I primi 3 quiz sono gratuiti. Dopo è possibile attivare l\'abbonamento a soli 3€/mese per quiz illimitati su tutte le materie.',
@@ -65,7 +77,7 @@ const tutorialSteps = [
   {
     emoji: '📧',
     title: 'Notifiche per i genitori',
-    description: 'Nelle impostazioni puoi attivare le email con i risultati dopo ogni quiz e il riepilogo settimanale dei progressi.',
+    description: 'Nel profilo puoi attivare le email con i risultati dopo ogni quiz e il riepilogo settimanale dei progressi della domenica mattina.',
     target: 'genitore',
   },
   {
