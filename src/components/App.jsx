@@ -120,6 +120,9 @@ export default function App({ user, profile }) {
       quizData.allQuestions = quizData.questions
       quizData.questions = pickRandomQuestions(quizData.questions, getProposedCount(selectedPages.length))
       setQuiz(quizData); setPhase(PHASES.SETUP)
+    } catch (err) {
+      console.error(err); setError('Ops! Qualcosa è andato storto. Riprova!'); setPhase(PHASES.HOME)
+    }
     clearInterval(msgTimer)
   }
 
