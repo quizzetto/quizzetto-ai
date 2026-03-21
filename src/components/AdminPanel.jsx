@@ -178,7 +178,7 @@ function AdminSubjects() {
 function AdminPages() {
   const [subjects, setSubjects] = useState([])
   const [pages, setPages] = useState([])
-  const [form, setForm] = useState({ subject_id: '', school_year: '1', section: '' })
+  const [form, setForm] = useState({ subject_id: '', school_year: '1', section: '', book_title: '' })
   const [files, setFiles] = useState([])
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0, currentFile: '', phase: '' })
@@ -256,6 +256,7 @@ function AdminPages() {
           subject_id: form.subject_id, school_year: form.school_year,
           section: form.section || null, page_number: f.pageNumber,
           image_url: imageUrl, extracted_text: extractedText,
+          book_title: form.book_title.trim() || null,
         })
         success++
       } catch (err) {
@@ -279,25 +280,19 @@ function AdminPages() {
 
   // Bulk edit
   const [bulkEdit, setBulkEdit] = useState(false)
-  const [bulkFrom, setBulkFrom] = useState({ subject_id: '', school_year: '', section: '' })
-  const [bulkTo, setBulkTo] = useState({ school_year: '', section: '' })
+  const [bulkFrom, setBulkFrom] = useState({ subject_id: '', school_year: '', section: '', book_title: '' })
+  const [bulkTo, setBulkTo] = useState({ school_year: '', section: '', book_title: '' })
   const [bulkMsg, setBulkMsg] = useState('')
 
   const executeBulkEdit = async () => {
     if (!bulkFrom.subject_id) return
-    let query = supabase.from('pages').update({
-      school_year: bulkTo.school_year || undefined,
-      section: bulkTo.section === '__null__' ? null : (bulkTo.section || undefined),
-    }).eq('subject_id', bulkFrom.subject_id)
-    
-    if (bulkFrom.school_year) query = query.eq('school_year', bulkFrom.school_year)
-    if (bulkFrom.section === '__null__') query = query.is('section', null)
-    else if (bulkFrom.section) query = query.eq('section', bulkFrom.section)
 
     const updateData = {}
     if (bulkTo.school_year) updateData.school_year = bulkTo.school_year
     if (bulkTo.section === '__null__') updateData.section = null
     else if (bulkTo.section) updateData.section = bulkTo.section.toUpperCase()
+    if (bulkTo.book_title === '__null__') updateData.book_title = null
+    else if (bulkTo.book_title) updateData.book_title = bulkTo.book_title
 
     if (Object.keys(updateData).length === 0) { setBulkMsg('❌ Seleziona almeno un campo da modificare'); return }
 
@@ -305,8 +300,9 @@ function AdminPages() {
     if (bulkFrom.school_year) q = q.eq('school_year', bulkFrom.school_year)
     if (bulkFrom.section === '__null__') q = q.is('section', null)
     else if (bulkFrom.section) q = q.eq('section', bulkFrom.section)
+    if (bulkFrom.book_title) q = q.eq('book_title', bulkFrom.book_title)
 
-    const { error, count } = await q
+    const { error } = await q
     if (error) { setBulkMsg('❌ Errore: ' + error.message) }
     else { setBulkMsg('✅ Pagine aggiornate!'); loadData(); setTimeout(() => setBulkMsg(''), 3000) }
   }
@@ -337,6 +333,10 @@ function AdminPages() {
           <input value={form.section} onChange={e => setForm({ ...form, section: e.target.value })} placeholder="Sez."
             style={{ width: '55px', padding: '0.5rem', borderRadius: '8px', border: `1px solid ${COLORS.grayBorder}`, fontFamily: FONTS.body, fontSize: '0.82rem' }} />
         </div>
+
+        {/* Book title */}
+        <input value={form.book_title} onChange={e => setForm({ ...form, book_title: e.target.value })} placeholder="Titolo del libro (es: Geoamici Vol.2)"
+          style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: `1px solid ${COLORS.grayBorder}`, fontFamily: FONTS.body, fontSize: '0.82rem', marginBottom: '0.75rem', boxSizing: 'border-box' }} />
 
         {/* File drop zone */}
         {!uploading && (
@@ -455,6 +455,13 @@ function AdminPages() {
               {[...new Set(pages.map(p => p.section).filter(Boolean))].sort().map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
+          <div style={{ marginBottom: '0.5rem' }}>
+            <select value={bulkFrom.book_title} onChange={e => setBulkFrom({...bulkFrom, book_title: e.target.value})}
+              style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: `1px solid ${COLORS.grayBorder}`, fontFamily: FONTS.body, fontSize: '0.78rem' }}>
+              <option value="">Titolo libro (tutti)...</option>
+              {[...new Set(pages.map(p => p.book_title).filter(Boolean))].sort().map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
 
           <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.gray, marginBottom: '0.3rem' }}>A (nuovi valori):</p>
           <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
@@ -469,6 +476,10 @@ function AdminPages() {
               <option value="__null__">Nessuna (tutte)</option>
               {['A','B','C','D','E','F','G','H'].map(s => <option key={s} value={s}>{s}</option>)}
             </select>
+          </div>
+          <div style={{ marginBottom: '0.5rem' }}>
+            <input value={bulkTo.book_title} onChange={e => setBulkTo({...bulkTo, book_title: e.target.value})} placeholder="Nuovo titolo libro (invariato se vuoto)"
+              style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: `1px solid ${COLORS.grayBorder}`, fontFamily: FONTS.body, fontSize: '0.78rem', boxSizing: 'border-box' }} />
           </div>
 
           {bulkMsg && <p style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: bulkMsg.includes('✅') ? COLORS.green : COLORS.orange, marginBottom: '0.4rem' }}>{bulkMsg}</p>}
@@ -487,7 +498,7 @@ function AdminPages() {
             <img src={p.image_url} alt={`pag ${p.page_number}`} style={{ width: '100%', height: '110px', objectFit: 'cover' }} onError={e => { e.target.style.background = COLORS.bgPurple }} />
             <div style={{ padding: '0.3rem', textAlign: 'center' }}>
               <p style={{ fontFamily: FONTS.heading, fontSize: '0.72rem', color: COLORS.dark, margin: 0 }}>{p.subjects?.icon} Pag. {p.page_number}</p>
-              <p style={{ fontFamily: FONTS.body, fontSize: '0.6rem', color: COLORS.grayLight, margin: 0 }}>{p.school_year}ª{p.section ? ` ${p.section}` : ''}</p>
+              <p style={{ fontFamily: FONTS.body, fontSize: '0.6rem', color: COLORS.grayLight, margin: 0 }}>{p.school_year}ª{p.section ? ` ${p.section}` : ''}{p.book_title ? ` · ${p.book_title}` : ''}</p>
             </div>
             <button onClick={() => deletePage(p)} style={{ position: 'absolute', top: '3px', right: '3px', background: COLORS.red, color: 'white', border: 'none', borderRadius: '50%', width: '20px', height: '20px', fontSize: '0.6rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 4px rgba(0,0,0,0.3)' }}>✕</button>
           </div>

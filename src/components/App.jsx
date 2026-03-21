@@ -286,6 +286,18 @@ export default function App({ user, profile: initialProfile }) {
           </div>
         </div>
       )}
+
+      {/* Contact button */}
+      <a href={`mailto:${import.meta.env.VITE_CONTACT_EMAIL || ''}`}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+          marginTop: '1.25rem', padding: '0.65rem', borderRadius: '12px',
+          border: `1.5px solid ${COLORS.grayBorder}`, background: 'white',
+          fontFamily: FONTS.body, fontSize: '0.82rem', color: COLORS.gray,
+          textDecoration: 'none', cursor: 'pointer',
+        }}>
+        ✉️ Contatta lo sviluppatore
+      </a>
     </div>
   )
 
@@ -440,7 +452,7 @@ export default function App({ user, profile: initialProfile }) {
           {phase === PHASES.TUTORIAL && <Tutorial onClose={goHome} />}
           {phase === PHASES.PROFILE && <ProfileSettings profile={profile} onBack={goHome} onUpdated={refreshProfile} />}
         </div>
-        <p style={{ textAlign: 'center', fontFamily: FONTS.body, fontSize: '0.7rem', color: COLORS.grayLight, marginTop: '1.5rem' }}>Quizzetto AI ✨</p>
+        <p style={{ textAlign: 'center', fontFamily: FONTS.body, fontSize: '0.7rem', color: COLORS.grayLight, marginTop: '1.5rem' }}>Quizzetto AI ✨ sviluppato da N.B.</p>
       </div>
     </div>
   )

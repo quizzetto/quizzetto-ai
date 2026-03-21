@@ -81,6 +81,12 @@ const tutorialSteps = [
     target: 'genitore',
   },
   {
+    emoji: '✉️',
+    title: 'Hai suggerimenti?',
+    description: 'Se hai idee per migliorare Quizzetto, hai riscontrato un problema o vuoi semplicemente dirci qualcosa, tocca il pulsante "Contatta lo sviluppatore" nella home!',
+    target: 'tutti',
+  },
+  {
     emoji: '🎓',
     title: 'Tutto pronto!',
     description: 'Hai studiato davvero tutto? Scopriamolo insieme! Buono studio!',
