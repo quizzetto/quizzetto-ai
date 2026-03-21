@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { generateQuizFromText, generateQuizFromImages } from '../lib/ai'
 import { COLORS, FONTS, btnPrimary, btnSuccess, btnPink, btnDanger, pressStyle, card } from '../lib/styles'
@@ -8,6 +8,7 @@ import QuizResults from './QuizResults'
 import TimerSetup from './TimerSetup'
 import PaymentWall from './PaymentWall'
 import AdminPanel from './AdminPanel'
+import PhotoUpload from './PhotoUpload'
 
 const PHASES = { HOME: 'home', BROWSE: 'browse', PAGES: 'pages', UPLOAD: 'upload', LOADING: 'loading', SETUP: 'setup', QUIZ: 'quiz', RESULTS: 'results', PAYMENT: 'payment', ADMIN: 'admin' }
 const loadingMessages = ['📚 Sto leggendo le pagine...', '🧠 Analizzo gli argomenti...', '✏️ Preparo le domande...', '🎯 Quasi pronto!']
@@ -30,10 +31,7 @@ export default function App({ user, profile }) {
   const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY
 
   useEffect(() => {
-    loadAccess()
-    loadSubjects()
-    loadSavedQuizzes()
-    loadDailyLimit()
+    loadAccess(); loadSubjects(); loadSavedQuizzes(); loadDailyLimit(); checkPaymentExpiry()
   }, [])
 
   const loadAccess = async () => {
@@ -56,6 +54,14 @@ export default function App({ user, profile }) {
     setSavedQuizzes(data || [])
   }
 
+  const checkPaymentExpiry = async () => {
+    const { data: p } = await supabase.from('profiles').select('has_paid, paid_until').eq('id', user.id).single()
+    if (p && p.has_paid && p.paid_until && new Date(p.paid_until) < new Date()) {
+      await supabase.from('profiles').update({ has_paid: false, paid_until: null }).eq('id', user.id)
+      loadAccess()
+    }
+  }
+
   const loadPages = async (subjectId) => {
     const yearFilter = profile.school_year || '1'
     let query = supabase.from('pages').select('*, subjects(name, icon)').eq('subject_id', subjectId).eq('school_year', yearFilter)
@@ -75,15 +81,12 @@ export default function App({ user, profile }) {
   }
 
   const checkCanGenerate = async () => {
+    await checkPaymentExpiry()
     const freshAccess = await supabase.rpc('check_user_access', { p_user_id: user.id })
     const freshLimit = await supabase.rpc('check_daily_quiz_limit', { p_user_id: user.id })
-    setAccess(freshAccess.data)
-    setDailyLimit(freshLimit.data)
+    setAccess(freshAccess.data); setDailyLimit(freshLimit.data)
 
-    if (freshAccess.data?.needs_payment) {
-      setPhase(PHASES.PAYMENT)
-      return false
-    }
+    if (freshAccess.data?.needs_payment) { setPhase(PHASES.PAYMENT); return false }
     if (!freshLimit.data?.can_generate) {
       setError(`Hai fatto tanti quiz oggi, complimenti! 🎉 I nuovi quiz tornano domani, ma puoi ancora ripassare quelli salvati! (${freshLimit.data?.max || 10} quiz al giorno)`)
       return false
@@ -91,29 +94,21 @@ export default function App({ user, profile }) {
     return true
   }
 
-  // Generate quiz from selected pages
   const handleGenerateFromPages = async () => {
     if (selectedPages.length === 0) return
     if (!(await checkCanGenerate())) return
-    setPhase(PHASES.LOADING)
-    setError(null)
+    setPhase(PHASES.LOADING); setError(null)
     const msgTimer = setInterval(() => setLoadingMsgIdx(p => (p + 1) % loadingMessages.length), 2500)
 
     try {
       const combinedText = selectedPages.map(p => `--- Pagina ${p.page_number} ---\n${p.extracted_text || ''}`).join('\n\n')
       const topic = `${selectedSubject?.name} - pag. ${selectedPages.map(p => p.page_number).join(', ')}`
-      const pageCount = selectedPages.length
-
-      const quizData = await generateQuizFromText(combinedText, topic, pageCount, apiKey)
+      const quizData = await generateQuizFromText(combinedText, topic, selectedPages.length, apiKey)
 
       const { data: saved } = await supabase.from('quizzes').insert({
-        user_id: user.id,
-        subject_id: selectedSubject?.id,
-        topic: quizData.topic,
-        questions: quizData.questions,
-        source_type: 'pages',
-        page_start: selectedPages[0].page_number,
-        page_end: selectedPages[selectedPages.length - 1].page_number,
+        user_id: user.id, subject_id: selectedSubject?.id, topic: quizData.topic,
+        questions: quizData.questions, source_type: 'pages',
+        page_start: selectedPages[0].page_number, page_end: selectedPages[selectedPages.length - 1].page_number,
       }).select().single()
 
       await supabase.from('profiles').update({
@@ -121,31 +116,22 @@ export default function App({ user, profile }) {
         free_sessions_used: (access?.free_sessions_used || 0) + 1,
       }).eq('id', user.id)
 
-      quizData.dbId = saved?.id
-      setQuiz(quizData)
-      setPhase(PHASES.SETUP)
+      quizData.dbId = saved?.id; setQuiz(quizData); setPhase(PHASES.SETUP)
     } catch (err) {
-      console.error(err)
-      setError('Ops! Qualcosa è andato storto. Riprova!')
-      setPhase(PHASES.HOME)
+      console.error(err); setError('Ops! Qualcosa è andato storto. Riprova!'); setPhase(PHASES.HOME)
     }
     clearInterval(msgTimer)
   }
 
-  // Generate from photos
   const handleGenerateFromImages = async (files) => {
     if (!(await checkCanGenerate())) return
-    setPhase(PHASES.LOADING)
-    setError(null)
+    setPhase(PHASES.LOADING); setError(null)
     const msgTimer = setInterval(() => setLoadingMsgIdx(p => (p + 1) % loadingMessages.length), 2500)
 
     try {
       const quizData = await generateQuizFromImages(files, apiKey)
       const { data: saved } = await supabase.from('quizzes').insert({
-        user_id: user.id,
-        topic: quizData.topic,
-        questions: quizData.questions,
-        source_type: 'photo',
+        user_id: user.id, topic: quizData.topic, questions: quizData.questions, source_type: 'photo',
       }).select().single()
 
       await supabase.from('profiles').update({
@@ -153,32 +139,21 @@ export default function App({ user, profile }) {
         free_sessions_used: (access?.free_sessions_used || 0) + 1,
       }).eq('id', user.id)
 
-      quizData.dbId = saved?.id
-      setQuiz(quizData)
-      setPhase(PHASES.SETUP)
+      quizData.dbId = saved?.id; setQuiz(quizData); setPhase(PHASES.SETUP)
     } catch (err) {
-      console.error(err)
-      setError('Ops! Qualcosa è andato storto. Riprova con foto più chiare! 📸')
-      setPhase(PHASES.HOME)
+      console.error(err); setError('Ops! Qualcosa è andato storto. Riprova con foto più chiare! 📸'); setPhase(PHASES.HOME)
     }
     clearInterval(msgTimer)
   }
 
-  const handleLoadSaved = (savedQuiz) => {
-    setQuiz({ ...savedQuiz, dbId: savedQuiz.id })
-    setPhase(PHASES.SETUP)
-  }
+  const handleLoadSaved = (savedQuiz) => { setQuiz({ ...savedQuiz, dbId: savedQuiz.id }); setPhase(PHASES.SETUP) }
 
   const handleFinish = async (ans) => {
     setAnswers(ans)
     const correctCount = ans.filter(a => a.selected === a.correct).length
     await supabase.from('quiz_results').insert({
-      quiz_id: quiz.dbId,
-      user_id: user.id,
-      answers: ans,
-      correct_count: correctCount,
-      total_count: ans.length,
-      percentage: Math.round((correctCount / ans.length) * 100),
+      quiz_id: quiz.dbId, user_id: user.id, answers: ans, correct_count: correctCount,
+      total_count: ans.length, percentage: Math.round((correctCount / ans.length) * 100),
       timer_mode: timerSeconds > 0 ? `${timerSeconds}s` : 'off',
     })
     setPhase(PHASES.RESULTS)
@@ -186,14 +161,12 @@ export default function App({ user, profile }) {
 
   const handleRetryWrong = (wrongQs) => {
     setQuiz(prev => ({ ...prev, questions: wrongQs.map((q, i) => ({ ...q, id: i + 1 })) }))
-    setAnswers([])
-    setPhase(PHASES.QUIZ)
+    setAnswers([]); setPhase(PHASES.QUIZ)
   }
 
   const goHome = () => {
     setQuiz(null); setAnswers([]); setError(null); setSelectedSubject(null); setSelectedPages([]); setAvailablePages([])
-    loadSavedQuizzes(); loadDailyLimit(); loadAccess()
-    setPhase(PHASES.HOME)
+    loadSavedQuizzes(); loadDailyLimit(); loadAccess(); setPhase(PHASES.HOME)
   }
 
   const handleLogout = async () => { await supabase.auth.signOut() }
@@ -204,8 +177,8 @@ export default function App({ user, profile }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <p style={{ fontFamily: FONTS.heading, fontSize: '1.1rem', color: COLORS.dark, margin: 0 }}>Ciao {profile.child_name}! 👋</p>
         <div style={{ display: 'flex', gap: '0.3rem' }}>
-          {profile.is_admin && <button onClick={() => setPhase(PHASES.ADMIN)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: '0.2rem' }} title="Admin">⚙️</button>}
-          <button onClick={handleLogout} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: '0.2rem' }} title="Esci">🚪</button>
+          {profile.is_admin && <button onClick={() => setPhase(PHASES.ADMIN)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: '0.2rem' }}>⚙️</button>}
+          <button onClick={handleLogout} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: '0.2rem' }}>🚪</button>
         </div>
       </div>
 
@@ -249,22 +222,19 @@ export default function App({ user, profile }) {
     </div>
   )
 
-  // ─── RENDER BROWSE SUBJECTS ───
+  // ─── RENDER BROWSE ───
   const renderBrowse = () => (
     <div>
       <button onClick={goHome} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, fontSize: '0.9rem', color: COLORS.purpleLight, marginBottom: '1rem' }}>← Indietro</button>
       <h3 style={{ fontFamily: FONTS.heading, fontSize: '1.2rem', color: COLORS.dark, marginBottom: '0.3rem' }}>Scegli la materia</h3>
       <p style={{ fontFamily: FONTS.body, fontSize: '0.85rem', color: COLORS.grayLight, marginBottom: '1rem' }}>Su cosa ti vuoi mettere alla prova?</p>
-
       {subjects.length === 0 ? (
-        <p style={{ fontFamily: FONTS.body, fontSize: '0.9rem', color: COLORS.grayLight, textAlign: 'center', padding: '2rem 0' }}>
-          Nessuna materia disponibile ancora.
-        </p>
+        <p style={{ fontFamily: FONTS.body, fontSize: '0.9rem', color: COLORS.grayLight, textAlign: 'center', padding: '2rem 0' }}>Nessuna materia disponibile.</p>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
           {subjects.map(s => (
             <button key={s.id} onClick={() => { setSelectedSubject(s); loadPages(s.id); setSelectedPages([]); setPhase(PHASES.PAGES) }}
-              style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.9rem 1rem', background: 'white', border: `2px solid ${COLORS.grayBorder}`, borderRadius: '14px', cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s ease' }}>
+              style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.9rem 1rem', background: 'white', border: `2px solid ${COLORS.grayBorder}`, borderRadius: '14px', cursor: 'pointer', textAlign: 'left' }}>
               <span style={{ fontSize: '1.8rem' }}>{s.icon}</span>
               <span style={{ fontFamily: FONTS.heading, fontSize: '1.05rem', color: COLORS.dark }}>{s.name}</span>
             </button>
@@ -278,38 +248,23 @@ export default function App({ user, profile }) {
   const renderPageCarousel = () => (
     <div>
       <button onClick={() => setPhase(PHASES.BROWSE)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, fontSize: '0.9rem', color: COLORS.purpleLight, marginBottom: '1rem' }}>← Indietro</button>
-      <h3 style={{ fontFamily: FONTS.heading, fontSize: '1.2rem', color: COLORS.dark, marginBottom: '0.3rem' }}>
-        {selectedSubject?.icon} {selectedSubject?.name}
-      </h3>
-      <p style={{ fontFamily: FONTS.body, fontSize: '0.85rem', color: COLORS.grayLight, marginBottom: '1rem' }}>
-        Su quali pagine ti vuoi mettere alla prova?
-      </p>
+      <h3 style={{ fontFamily: FONTS.heading, fontSize: '1.2rem', color: COLORS.dark, marginBottom: '0.3rem' }}>{selectedSubject?.icon} {selectedSubject?.name}</h3>
+      <p style={{ fontFamily: FONTS.body, fontSize: '0.85rem', color: COLORS.grayLight, marginBottom: '1rem' }}>Su quali pagine ti vuoi mettere alla prova?</p>
 
       {availablePages.length === 0 ? (
-        <p style={{ fontFamily: FONTS.body, fontSize: '0.9rem', color: COLORS.grayLight, textAlign: 'center', padding: '2rem 0' }}>
-          Nessuna pagina disponibile per questa materia.
-        </p>
+        <p style={{ fontFamily: FONTS.body, fontSize: '0.9rem', color: COLORS.grayLight, textAlign: 'center', padding: '2rem 0' }}>Nessuna pagina disponibile.</p>
       ) : (
         <>
-          {/* Selection info */}
           {selectedPages.length > 0 && (
             <div style={{ padding: '0.6rem 0.85rem', background: COLORS.bgPurple, borderRadius: '12px', marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <p style={{ fontFamily: FONTS.heading, fontSize: '0.9rem', color: COLORS.purple, margin: 0 }}>
-                  {selectedPages.length} pagin{selectedPages.length === 1 ? 'a' : 'e'} selezionat{selectedPages.length === 1 ? 'a' : 'e'}
-                </p>
-                <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.grayLight, margin: 0 }}>
-                  {10 + Math.max(0, (selectedPages.length - 1) * 5)} domande
-                </p>
+                <p style={{ fontFamily: FONTS.heading, fontSize: '0.9rem', color: COLORS.purple, margin: 0 }}>{selectedPages.length} pagin{selectedPages.length === 1 ? 'a' : 'e'} selezionat{selectedPages.length === 1 ? 'a' : 'e'}</p>
+                <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.grayLight, margin: 0 }}>{10 + Math.max(0, (selectedPages.length - 1) * 5)} domande</p>
               </div>
-              <button onClick={() => setSelectedPages([])}
-                style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: COLORS.orange, background: 'none', border: 'none', cursor: 'pointer' }}>
-                Deseleziona
-              </button>
+              <button onClick={() => setSelectedPages([])} style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: COLORS.orange, background: 'none', border: 'none', cursor: 'pointer' }}>Deseleziona</button>
             </div>
           )}
 
-          {/* Page grid / carousel */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem', justifyContent: 'center', marginBottom: '1.25rem', maxHeight: '380px', overflowY: 'auto', padding: '0.25rem' }}>
             {availablePages.map(p => {
               const isSelected = selectedPages.find(sp => sp.id === p.id)
@@ -320,34 +275,23 @@ export default function App({ user, profile }) {
                     border: isSelected ? `3px solid ${COLORS.purple}` : `2px solid ${COLORS.grayBorder}`,
                     background: 'white', transition: 'all 0.2s ease',
                     transform: isSelected ? 'scale(1.03)' : 'scale(1)',
-                    boxShadow: isSelected ? `0 4px 15px rgba(108,92,231,0.25)` : '0 2px 6px rgba(0,0,0,0.05)',
+                    boxShadow: isSelected ? '0 4px 15px rgba(108,92,231,0.25)' : '0 2px 6px rgba(0,0,0,0.05)',
                   }}>
                   <div style={{ position: 'relative' }}>
-                    <img src={p.image_url} alt={`pag ${p.page_number}`}
-                      style={{ width: '100%', height: '130px', objectFit: 'cover', display: 'block' }}
-                      onError={e => { e.target.src = ''; e.target.style.background = COLORS.bgPurple; e.target.style.height = '130px' }} />
+                    <img src={p.image_url} alt={`pag ${p.page_number}`} style={{ width: '100%', height: '130px', objectFit: 'cover', display: 'block' }}
+                      onError={e => { e.target.style.background = COLORS.bgPurple }} />
                     {isSelected && (
-                      <div style={{
-                        position: 'absolute', top: '5px', right: '5px', width: '24px', height: '24px',
-                        borderRadius: '50%', background: COLORS.purple, display: 'flex', alignItems: 'center',
-                        justifyContent: 'center', color: 'white', fontSize: '0.75rem', fontWeight: 700,
-                        boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
-                      }}>
-                        ✓
-                      </div>
+                      <div style={{ position: 'absolute', top: '5px', right: '5px', width: '24px', height: '24px', borderRadius: '50%', background: COLORS.purple, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '0.75rem', fontWeight: 700, boxShadow: '0 2px 6px rgba(0,0,0,0.3)' }}>✓</div>
                     )}
                   </div>
                   <div style={{ padding: '0.35rem', textAlign: 'center' }}>
-                    <p style={{ fontFamily: FONTS.heading, fontSize: '0.82rem', color: isSelected ? COLORS.purple : COLORS.dark, margin: 0 }}>
-                      Pag. {p.page_number}
-                    </p>
+                    <p style={{ fontFamily: FONTS.heading, fontSize: '0.82rem', color: isSelected ? COLORS.purple : COLORS.dark, margin: 0 }}>Pag. {p.page_number}</p>
                   </div>
                 </div>
               )
             })}
           </div>
 
-          {/* Start quiz button */}
           {selectedPages.length > 0 && (
             <button onClick={handleGenerateFromPages} {...pressStyle}
               style={{ ...btnPink, width: '100%', padding: '1rem', fontSize: '1.1rem' }}>
@@ -358,64 +302,6 @@ export default function App({ user, profile }) {
       )}
     </div>
   )
-
-  // ─── RENDER UPLOAD (photo) ───
-  const renderUpload = () => {
-    const [images, setImages] = useState([])
-    const fileRef = useRef(null)
-    const camRef = useRef(null)
-
-    const handleFiles = (files) => {
-      const newImgs = Array.from(files).filter(f => f.type.startsWith('image/')).map(f => ({ file: f, preview: URL.createObjectURL(f), id: Math.random().toString(36).substr(2, 9) }))
-      setImages(prev => [...prev, ...newImgs])
-    }
-
-    return (
-      <div style={{ textAlign: 'center' }}>
-        <button onClick={goHome} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, fontSize: '0.9rem', color: COLORS.purpleLight, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>← Indietro</button>
-        <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>📸</div>
-        <h2 style={{ fontFamily: FONTS.heading, fontSize: '1.3rem', color: COLORS.dark, margin: '0 0 0.3rem' }}>Fotografa il tuo libro!</h2>
-        <p style={{ fontFamily: FONTS.body, color: COLORS.gray, fontSize: '0.85rem', margin: '0 0 1.25rem' }}>Scatta una foto delle pagine da studiare</p>
-
-        <div onClick={() => fileRef.current?.click()}
-          onDrop={e => { e.preventDefault(); handleFiles(e.dataTransfer.files) }}
-          onDragOver={e => e.preventDefault()}
-          style={{ border: `3px dashed ${COLORS.purpleLight}`, borderRadius: '20px', padding: '1.5rem', marginBottom: '1rem', background: COLORS.bgPurple, cursor: 'pointer' }}>
-          <div style={{ fontSize: '2rem', marginBottom: '0.3rem' }}>📄</div>
-          <p style={{ fontFamily: FONTS.body, color: COLORS.purple, fontWeight: 600, margin: 0, fontSize: '0.9rem' }}>Tocca per caricare</p>
-        </div>
-
-        <div style={{ display: 'flex', gap: '0.65rem', marginBottom: '1rem' }}>
-          <button onClick={() => camRef.current?.click()} {...pressStyle}
-            style={{ ...btnPrimary, flex: 1, padding: '0.75rem', fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}>📷 Scatta</button>
-          <button onClick={() => fileRef.current?.click()} {...pressStyle}
-            style={{ ...btnSuccess, flex: 1, padding: '0.75rem', fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}>🖼️ Galleria</button>
-        </div>
-
-        <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={e => handleFiles(e.target.files)} />
-        <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={e => handleFiles(e.target.files)} />
-
-        {images.length > 0 && (
-          <>
-            <p style={{ fontFamily: FONTS.heading, color: COLORS.dark, marginBottom: '0.6rem', fontSize: '0.95rem' }}>
-              {images.length} pagin{images.length === 1 ? 'a' : 'e'} · {10 + Math.max(0, (images.length - 1) * 5)} domande
-            </p>
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'center', marginBottom: '1rem' }}>
-              {images.map(img => (
-                <div key={img.id} style={{ position: 'relative', width: '70px', height: '70px', borderRadius: '12px', overflow: 'hidden', border: `2px solid ${COLORS.grayBorder}` }}>
-                  <img src={img.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  <button onClick={() => setImages(prev => prev.filter(i => i.id !== img.id))}
-                    style={{ position: 'absolute', top: '2px', right: '2px', background: COLORS.red, color: 'white', border: 'none', borderRadius: '50%', width: '20px', height: '20px', fontSize: '0.65rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
-                </div>
-              ))}
-            </div>
-            <button onClick={() => handleGenerateFromImages(images.map(i => i.file))} {...pressStyle}
-              style={{ ...btnPink, width: '100%', padding: '0.9rem', fontSize: '1.05rem' }}>🚀 Crea il Quiz!</button>
-          </>
-        )}
-      </div>
-    )
-  }
 
   // ─── RENDER LOADING ───
   const renderLoading = () => (
@@ -443,7 +329,7 @@ export default function App({ user, profile }) {
           {phase === PHASES.HOME && renderHome()}
           {phase === PHASES.BROWSE && renderBrowse()}
           {phase === PHASES.PAGES && renderPageCarousel()}
-          {phase === PHASES.UPLOAD && renderUpload()}
+          {phase === PHASES.UPLOAD && <PhotoUpload onGenerate={handleGenerateFromImages} onBack={goHome} />}
           {phase === PHASES.LOADING && renderLoading()}
           {phase === PHASES.SETUP && quiz && <TimerSetup quiz={quiz} onStart={s => { setTimerSeconds(s); setAnswers([]); setPhase(PHASES.QUIZ) }} />}
           {phase === PHASES.QUIZ && quiz && <QuizPlay quiz={quiz} timerSeconds={timerSeconds} onFinish={handleFinish} />}
