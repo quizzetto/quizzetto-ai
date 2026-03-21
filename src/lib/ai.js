@@ -1,7 +1,8 @@
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
 
 function getQuestionsCount(pageCount) {
-  return 10 + Math.max(0, (pageCount - 1) * 5)
+  // Always generate 20 base questions for 1 page, +10 for each additional page
+  return 20 + Math.max(0, (pageCount - 1) * 10)
 }
 
 function getDifficultyDistribution(total) {
@@ -9,6 +10,41 @@ function getDifficultyDistribution(total) {
   const hard = Math.round(total * 0.3)
   const medium = total - easy - hard
   return { easy, medium, hard }
+}
+
+export function pickRandomQuestions(allQuestions, count = 10) {
+  if (allQuestions.length <= count) return [...allQuestions]
+  
+  // Shuffle using Fisher-Yates
+  const shuffled = [...allQuestions]
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+  }
+  
+  // Pick 'count' questions, trying to maintain difficulty balance
+  const easy = shuffled.filter(q => q.difficulty === 'facile')
+  const medium = shuffled.filter(q => q.difficulty === 'media')
+  const hard = shuffled.filter(q => q.difficulty === 'difficile')
+  
+  const picked = []
+  const easyCount = Math.round(count * 0.3)
+  const hardCount = Math.round(count * 0.3)
+  const mediumCount = count - easyCount - hardCount
+  
+  picked.push(...easy.slice(0, easyCount))
+  picked.push(...medium.slice(0, mediumCount))
+  picked.push(...hard.slice(0, hardCount))
+  
+  // Fill remaining if any category was short
+  while (picked.length < count) {
+    const remaining = shuffled.filter(q => !picked.includes(q))
+    if (remaining.length === 0) break
+    picked.push(remaining[0])
+  }
+  
+  // Re-assign IDs in order
+  return picked.map((q, i) => ({ ...q, id: i + 1 }))
 }
 
 export async function generateQuizFromText(contentText, topic, pageCount, apiKey) {
@@ -25,7 +61,7 @@ export async function generateQuizFromText(contentText, topic, pageCount, apiKey
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 4000,
+      max_tokens: 8000,
       messages: [{
         role: 'user',
         content: `Sei un insegnante simpatico e paziente per bambini delle elementari (6-11 anni).
@@ -42,9 +78,10 @@ REGOLE:
 - Le prime ${dist.easy} domande devono essere facili (comprensione base)
 - Le successive ${dist.medium} domande di media difficoltà
 - Le ultime ${dist.hard} domande più impegnative (richiedono ragionamento)
-- Alcune domande devono testare lo stesso concetto ma formulato in modo diverso
+- Molte domande devono testare lo stesso concetto ma formulato in modo diverso
 - Usa un linguaggio semplice e adatto ai bambini
 - Ogni domanda deve avere una spiegazione chiara della risposta corretta
+- Varia il più possibile la formulazione delle domande
 
 Rispondi SOLO con un JSON valido (senza markdown, senza backtick) con questa struttura:
 {
@@ -101,7 +138,7 @@ export async function generateQuizFromImages(images, apiKey) {
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 4000,
+      max_tokens: 8000,
       messages: [{
         role: 'user',
         content: [
@@ -118,9 +155,10 @@ REGOLE:
 - Le prime ${dist.easy} domande devono essere facili (comprensione base)
 - Le successive ${dist.medium} domande di media difficoltà  
 - Le ultime ${dist.hard} domande più impegnative (richiedono ragionamento)
-- Alcune domande devono testare lo stesso concetto ma formulato in modo diverso
+- Molte domande devono testare lo stesso concetto ma formulato in modo diverso
 - Usa un linguaggio semplice e adatto ai bambini
 - Ogni domanda deve avere una spiegazione chiara della risposta corretta
+- Varia il più possibile la formulazione delle domande
 
 Rispondi SOLO con un JSON valido (senza markdown, senza backtick) con questa struttura:
 {
