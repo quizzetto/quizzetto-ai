@@ -55,7 +55,7 @@ export default function Auth() {
           notify_weekly: notifyWeekly,
         }).eq('id', data.user.id)
       }
-      setSuccess('Registrazione completata! Controlla la tua email per confermare l\'account. Se non la trovi, controlla anche nella cartella spam.')
+      setSuccess('Registrazione completata!')
     }
     setLoading(false)
   }
@@ -231,6 +231,10 @@ export default function Auth() {
                 Password dimenticata?
               </p>
             )}
+
+            <p style={{ textAlign: 'center', fontFamily: FONTS.body, fontSize: '0.8rem', color: COLORS.dark, marginTop: '0.5rem' }}>
+              Ideato e sviluppato da N.B.
+            </p>
           </div>
         </div>
       </div>
