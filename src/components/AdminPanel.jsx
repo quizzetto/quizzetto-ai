@@ -85,7 +85,13 @@ function AdminUsers() {
   const deactivatePaid = async (userId) => { await supabase.from('profiles').update({ has_paid: false, paid_until: null }).eq('id', userId); loadUsers() }
   const toggleActive = async (userId, current) => { await supabase.from('profiles').update({ is_active: !current }).eq('id', userId); loadUsers() }
   const formatDate = (d) => d ? new Date(d).toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' }) : ''
+  const formatDateTime = (d) => d ? new Date(d).toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''
   const isExpired = (d) => d ? new Date(d) < new Date() : false
+  const daysUntilExpiry = (d) => {
+    if (!d) return null
+    const diff = Math.ceil((new Date(d) - new Date()) / (1000 * 60 * 60 * 24))
+    return diff
+  }
 
   const startEdit = (u) => {
     setEditing(u.id)
@@ -109,21 +115,28 @@ function AdminUsers() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '400px', overflowY: 'auto' }}>
         {users.map(u => {
           const expired = u.has_paid && isExpired(u.paid_until)
+          const daysLeft = u.has_paid ? daysUntilExpiry(u.paid_until) : null
+          const expiringSOon = daysLeft !== null && daysLeft > 0 && daysLeft <= 5
           const isEditing = editing === u.id
           return (
-            <div key={u.id} style={{ padding: '0.75rem', borderRadius: '12px', background: u.is_admin ? COLORS.bgPurple : expired ? 'rgba(255,107,107,0.04)' : 'white', border: `1px solid ${expired ? 'rgba(255,107,107,0.2)' : COLORS.grayBorder}` }}>
+            <div key={u.id} style={{ padding: '0.75rem', borderRadius: '12px', background: u.is_admin ? COLORS.bgPurple : expired ? 'rgba(255,107,107,0.04)' : expiringSOon ? 'rgba(253,203,110,0.06)' : 'white', border: `1px solid ${expired ? 'rgba(255,107,107,0.2)' : expiringSOon ? 'rgba(253,203,110,0.3)' : COLORS.grayBorder}` }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
                 <div>
                   <span style={{ fontFamily: FONTS.heading, fontSize: '0.9rem', color: COLORS.dark }}>{u.child_name}</span>
                   {u.is_admin && <span style={{ marginLeft: '0.4rem', fontSize: '0.7rem', background: COLORS.purple, color: 'white', padding: '0.1rem 0.4rem', borderRadius: '8px' }}>ADMIN</span>}
                   <span style={{ marginLeft: '0.4rem', fontFamily: FONTS.body, fontSize: '0.7rem', color: COLORS.grayLight }}>{u.school_year}ª{u.section ? ` ${u.section}` : ''}</span>
                 </div>
-                <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '10px', fontFamily: FONTS.body, background: u.is_free_access ? COLORS.bgGreen : u.has_paid && !expired ? COLORS.bgGreen : u.has_paid && expired ? COLORS.bgRed : u.free_sessions_used < u.max_free_sessions ? COLORS.bgYellow : COLORS.bgRed, color: u.is_free_access ? COLORS.green : u.has_paid && !expired ? COLORS.green : u.has_paid && expired ? COLORS.orange : u.free_sessions_used < u.max_free_sessions ? '#e67e22' : COLORS.orange }}>
-                  {u.is_free_access ? 'Gratuito' : u.has_paid && !expired ? `Pagato → ${formatDate(u.paid_until)}` : u.has_paid && expired ? `Scaduto ${formatDate(u.paid_until)}` : `${u.free_sessions_used}/${u.max_free_sessions} gratis`}
+                <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '10px', fontFamily: FONTS.body,
+                  background: u.is_free_access ? COLORS.bgGreen : u.has_paid && !expired && !expiringSOon ? COLORS.bgGreen : u.has_paid && expiringSOon ? COLORS.bgRed : u.has_paid && expired ? COLORS.bgRed : u.free_sessions_used < u.max_free_sessions ? COLORS.bgYellow : COLORS.bgRed,
+                  color: u.is_free_access ? COLORS.green : u.has_paid && !expired && !expiringSOon ? COLORS.green : u.has_paid && expiringSOon ? COLORS.red : u.has_paid && expired ? COLORS.orange : u.free_sessions_used < u.max_free_sessions ? '#e67e22' : COLORS.orange }}>
+                  {u.is_free_access ? 'Gratuito' : u.has_paid && expired ? `Scaduto ${formatDate(u.paid_until)}` : u.has_paid && expiringSOon ? `⚠️ Scade tra ${daysLeft}gg (${formatDate(u.paid_until)})` : u.has_paid ? `Pagato → ${formatDate(u.paid_until)}` : `${u.free_sessions_used}/${u.max_free_sessions} gratis`}
                 </span>
               </div>
-              <p style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: COLORS.grayLight, margin: '0 0 0.5rem' }}>
-                {u.email} · 📝 {quizStats.counts?.[u.id] || 0} quiz · 📄 {quizStats.pages?.[u.id] || 0} pagine totali · 📄 {u.daily_pages_used || 0}/{u.max_daily_pages || 20} oggi
+              <p style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: COLORS.grayLight, margin: '0 0 0.2rem' }}>
+                {u.email} · Registrato: {formatDateTime(u.created_at)}
+              </p>
+              <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.grayLight, margin: '0 0 0.5rem' }}>
+                📝 {quizStats.counts?.[u.id] || 0} quiz · 📄 {quizStats.pages?.[u.id] || 0} pagine totali · 📄 {u.daily_pages_used || 0}/{u.max_daily_pages || 20} oggi
               </p>
               
               {/* Edit form */}
