@@ -23,7 +23,7 @@ const tutorialSteps = [
   {
     emoji: '📸',
     title: 'Seleziona le pagine',
-    description: 'Vedrai le foto delle pagine del tuo libro. Tocca quelle che hai studiato per selezionarle — puoi sceglierne una o più!',
+    description: 'Vedrai le pagine del tuo libro. Tocca quelle che hai studiato per selezionarle — puoi sceglierne fino a 5 per ogni quiz!',
     target: 'bambino',
   },
   {
@@ -53,13 +53,19 @@ const tutorialSteps = [
   {
     emoji: '💾',
     title: 'Salva e rifai',
-    description: 'Puoi salvare i quiz per rifarli quando vuoi. Ogni volta le domande saranno diverse, così non ti annoi mai!',
+    description: 'Puoi salvare i quiz per rifarli quando vuoi. Ogni volta le domande saranno diverse, così non ti annoi mai! I quiz salvati non consumano le pagine giornaliere.',
+    target: 'bambino',
+  },
+  {
+    emoji: '📄',
+    title: 'Pagine giornaliere',
+    description: 'Ogni giorno hai a disposizione 20 pagine per creare nuovi quiz. Puoi usarle come vuoi: tanti quiz da 1 pagina o pochi quiz da più pagine. Si ricaricano ogni giorno!',
     target: 'bambino',
   },
   {
     emoji: '📷',
     title: 'Quiz da foto',
-    description: 'Vuoi fare un quiz su pagine che non sono ancora caricate? Scatta una foto delle pagine del libro e Quizzetto creerà le domande!',
+    description: 'Vuoi fare un quiz su pagine che non sono ancora caricate? Scatta una foto delle pagine del libro e Quizzetto creerà le domande! Anche le foto usano le pagine giornaliere.',
     target: 'bambino',
   },
   {
