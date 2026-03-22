@@ -1,13 +1,30 @@
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
 
-function getQuestionsCount(pageCount) {
+function countWords(text) {
+  if (!text) return 0
+  return text.trim().split(/\s+/).filter(w => w.length > 0).length
+}
+
+function getProposedCountFromText(text) {
+  const words = countWords(text)
+  if (words < 50) return 3
+  if (words < 150) return 5
+  if (words < 300) return 8
+  return 10
+}
+
+function getQuestionsCountFromText(text) {
   // Pool generato: doppio delle domande proposte
-  // 1 pag = 20 generate, 2 pag = 30, 3 pag = 40
+  return getProposedCountFromText(text) * 2
+}
+
+// Legacy fixed count (for photo uploads where we don't have text yet)
+function getQuestionsCount(pageCount) {
   return 20 + Math.max(0, (pageCount - 1) * 10)
 }
 
-export function getProposedCount(pageCount) {
-  // Domande proposte al bambino: 10 base + 5 per pagina aggiuntiva
+export function getProposedCount(pageCount, text) {
+  if (text) return getProposedCountFromText(text)
   return 10 + Math.max(0, (pageCount - 1) * 5)
 }
 
@@ -54,7 +71,7 @@ export function pickRandomQuestions(allQuestions, count = 10) {
 }
 
 export async function generateQuizFromText(contentText, topic, pageCount, apiKey) {
-  const totalQuestions = getQuestionsCount(pageCount)
+  const totalQuestions = getQuestionsCountFromText(contentText)
   const dist = getDifficultyDistribution(totalQuestions)
 
   const response = await fetch(ANTHROPIC_API_URL, {
