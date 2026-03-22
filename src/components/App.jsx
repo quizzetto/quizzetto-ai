@@ -139,8 +139,8 @@ export default function App({ user, profile: initialProfile }) {
     if (existingQuizzes && existingQuizzes.length > 0) {
       // Use existing quiz with random questions
       const existing = existingQuizzes[0]
-      const combinedText = selectedPages.map(p => p.extracted_text || '').join('\n')
-      const proposedCount = getProposedCount(selectedPages.length, combinedText)
+      const pageTexts = selectedPages.map(p => p.extracted_text || '')
+      const proposedCount = getProposedCount(selectedPages.length, pageTexts)
       const randomQuestions = pickRandomQuestions(existing.questions, proposedCount)
       setQuiz({ ...existing, dbId: existing.id, allQuestions: existing.questions, questions: randomQuestions })
       setPhase(PHASES.SETUP)
@@ -152,9 +152,10 @@ export default function App({ user, profile: initialProfile }) {
     const msgTimer = setInterval(() => setLoadingMsgIdx(p => (p + 1) % loadingMessages.length), 2500)
 
     try {
+      const pageTexts = selectedPages.map(p => p.extracted_text || '')
       const combinedText = selectedPages.map(p => `--- Pagina ${p.page_number} ---\n${p.extracted_text || ''}`).join('\n\n')
       const topic = `${selectedSubject?.name} - pag. ${selectedPages.map(p => p.page_number).join(', ')}`
-      const quizData = await generateQuizFromText(combinedText, topic, selectedPages.length, apiKey)
+      const quizData = await generateQuizFromText(combinedText, topic, selectedPages.length, apiKey, pageTexts)
 
       const { data: saved } = await supabase.from('quizzes').insert({
         user_id: user.id, subject_id: selectedSubject?.id, topic: quizData.topic,
@@ -169,7 +170,7 @@ export default function App({ user, profile: initialProfile }) {
 
       quizData.dbId = saved?.id
       quizData.allQuestions = quizData.questions
-      quizData.questions = pickRandomQuestions(quizData.questions, getProposedCount(selectedPages.length, combinedText))
+      quizData.questions = pickRandomQuestions(quizData.questions, getProposedCount(selectedPages.length, pageTexts))
       setQuiz(quizData); setPhase(PHASES.SETUP)
     } catch (err) {
       console.error(err); setError('Ops! Qualcosa è andato storto. Riprova!'); setPhase(PHASES.HOME)
@@ -379,7 +380,7 @@ export default function App({ user, profile: initialProfile }) {
                 <div style={{ padding: '0.6rem 0.85rem', background: COLORS.bgPurple, borderRadius: '12px', marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <p style={{ fontFamily: FONTS.heading, fontSize: '0.9rem', color: COLORS.purple, margin: 0 }}>{selectedPages.length} pagin{selectedPages.length === 1 ? 'a' : 'e'} selezionat{selectedPages.length === 1 ? 'a' : 'e'}</p>
-                    <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.grayLight, margin: 0 }}>{getProposedCount(selectedPages.length, selectedPages.map(p => p.extracted_text || '').join('\n'))} domande</p>
+                    <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.grayLight, margin: 0 }}>{getProposedCount(selectedPages.length, selectedPages.map(p => p.extracted_text || ''))} domande</p>
                   </div>
                   <button onClick={() => setSelectedPages([])} style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: COLORS.orange, background: 'none', border: 'none', cursor: 'pointer' }}>Deseleziona</button>
                 </div>
