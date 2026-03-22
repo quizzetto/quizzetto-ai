@@ -58,13 +58,26 @@ function AdminUsers() {
   const loadUsers = async () => {
     const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false })
     setUsers(data || [])
-    // Load quiz stats for each user
-    const { data: results } = await supabase.from('quiz_results').select('user_id')
+    // Load quiz stats and page stats for each user
+    const { data: results } = await supabase.from('quiz_results').select('user_id, total_count')
     const stats = {}
+    const pageStats = {}
     if (results) {
-      results.forEach(r => { stats[r.user_id] = (stats[r.user_id] || 0) + 1 })
+      results.forEach(r => {
+        stats[r.user_id] = (stats[r.user_id] || 0) + 1
+        pageStats[r.user_id] = (pageStats[r.user_id] || 0) + (r.total_count || 0)
+      })
     }
-    setQuizStats(stats)
+    // Also count total pages from quizzes generated
+    const { data: quizzes } = await supabase.from('quizzes').select('user_id, page_start, page_end')
+    const totalPages = {}
+    if (quizzes) {
+      quizzes.forEach(q => {
+        const pages = q.page_end && q.page_start ? (q.page_end - q.page_start + 1) : 1
+        totalPages[q.user_id] = (totalPages[q.user_id] || 0) + pages
+      })
+    }
+    setQuizStats({ counts: stats, pages: totalPages })
     setLoading(false)
   }
   const toggleFreeAccess = async (userId, current) => { await supabase.from('profiles').update({ is_free_access: !current }).eq('id', userId); loadUsers() }
@@ -110,7 +123,7 @@ function AdminUsers() {
                 </span>
               </div>
               <p style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: COLORS.grayLight, margin: '0 0 0.5rem' }}>
-                {u.email} · 📝 {quizStats[u.id] || 0} quiz svolti · 📄 {u.daily_pages_used || 0}/{u.max_daily_pages || 20} pagine oggi
+                {u.email} · 📝 {quizStats.counts?.[u.id] || 0} quiz · 📄 {quizStats.pages?.[u.id] || 0} pagine totali · 📄 {u.daily_pages_used || 0}/{u.max_daily_pages || 20} oggi
               </p>
               
               {/* Edit form */}
