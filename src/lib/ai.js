@@ -89,8 +89,18 @@ export function pickRandomQuestions(allQuestions, count = 10) {
     picked.push(remaining[0])
   }
   
-  // Re-assign IDs in order
-  return picked.map((q, i) => ({ ...q, id: i + 1 }))
+  // Re-assign IDs and shuffle options for each question
+  return picked.map((q, i) => {
+    // Force shuffle answer positions every time
+    const indices = [0, 1, 2, 3]
+    for (let k = indices.length - 1; k > 0; k--) {
+      const j = Math.floor(Math.random() * (k + 1));
+      [indices[k], indices[j]] = [indices[j], indices[k]]
+    }
+    const newOptions = indices.map(idx => q.options[idx])
+    const newCorrect = indices.indexOf(q.correct)
+    return { ...q, id: i + 1, options: newOptions, correct: newCorrect }
+  })
 }
 
 export async function generateQuizFromText(contentText, topic, pageCount, apiKey, pageTexts) {
