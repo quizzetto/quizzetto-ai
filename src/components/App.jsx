@@ -30,14 +30,14 @@ export default function App({ user, profile: initialProfile }) {
   const [availableSections, setAvailableSections] = useState([])
   const [sectionFilter, setSectionFilter] = useState(null)
   const [access, setAccess] = useState(null)
-  const [dailyLimit, setDailyLimit] = useState(null)
+  const [pageLimit, setPageLimit] = useState(null)
   const [loadingMsgIdx, setLoadingMsgIdx] = useState(0)
   const [displayMode, setDisplayMode] = useState('thumbnails')
 
   const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY
 
   useEffect(() => {
-    loadAccess(); loadSubjects(); loadSavedQuizzes(); loadDailyLimit(); checkPaymentExpiry()
+    loadAccess(); loadSubjects(); loadSavedQuizzes(); loadPageLimit(); checkPaymentExpiry()
     supabase.from('settings').select('value').eq('key', 'page_display').single().then(({ data }) => {
       if (data) setDisplayMode(data.value)
     })
@@ -48,9 +48,17 @@ export default function App({ user, profile: initialProfile }) {
     setAccess(data)
   }
 
-  const loadDailyLimit = async () => {
-    const { data } = await supabase.rpc('check_daily_quiz_limit', { p_user_id: user.id })
-    setDailyLimit(data)
+  const loadPageLimit = async () => {
+    const { data: p } = await supabase.from('profiles').select('daily_pages_used, max_daily_pages, daily_quiz_date').eq('id', user.id).single()
+    if (!p) return
+    // Reset if new day
+    const today = new Date().toISOString().split('T')[0]
+    if (p.daily_quiz_date !== today) {
+      await supabase.from('profiles').update({ daily_pages_used: 0, daily_quiz_count: 0, daily_quiz_date: today }).eq('id', user.id)
+      setPageLimit({ used: 0, max: p.max_daily_pages || 20, remaining: p.max_daily_pages || 20 })
+    } else {
+      setPageLimit({ used: p.daily_pages_used || 0, max: p.max_daily_pages || 20, remaining: (p.max_daily_pages || 20) - (p.daily_pages_used || 0) })
+    }
   }
 
   const loadSubjects = async () => {
@@ -99,23 +107,33 @@ export default function App({ user, profile: initialProfile }) {
     setSectionFilter(sec)
   }
 
+  const MAX_PAGES_PER_QUIZ = 5
+
   const togglePageSelection = (page) => {
     setSelectedPages(prev => {
       const exists = prev.find(p => p.id === page.id)
       if (exists) return prev.filter(p => p.id !== page.id)
+      if (prev.length >= MAX_PAGES_PER_QUIZ) return prev // limit reached
       return [...prev, page].sort((a, b) => a.page_number - b.page_number)
     })
   }
 
-  const checkCanGenerate = async () => {
+  const checkCanGenerate = async (pagesNeeded = 1) => {
     await checkPaymentExpiry()
     const freshAccess = await supabase.rpc('check_user_access', { p_user_id: user.id })
-    const freshLimit = await supabase.rpc('check_daily_quiz_limit', { p_user_id: user.id })
-    setAccess(freshAccess.data); setDailyLimit(freshLimit.data)
+    setAccess(freshAccess.data)
+    await loadPageLimit()
 
     if (freshAccess.data?.needs_payment) { setPhase(PHASES.PAYMENT); return false }
-    if (!freshLimit.data?.can_generate) {
-      setError(`Hai fatto tanti quiz oggi, complimenti! 🎉 I nuovi quiz tornano domani, ma puoi ancora ripassare quelli salvati! (${freshLimit.data?.max || 10} quiz al giorno)`)
+    
+    const { data: p } = await supabase.from('profiles').select('daily_pages_used, max_daily_pages, daily_quiz_date').eq('id', user.id).single()
+    const today = new Date().toISOString().split('T')[0]
+    const used = (p?.daily_quiz_date === today) ? (p?.daily_pages_used || 0) : 0
+    const max = p?.max_daily_pages || 20
+    const remaining = max - used
+    
+    if (remaining < pagesNeeded) {
+      setError(`Hai usato tante pagine oggi, complimenti! 🎉 Le pagine si ricaricano domani, ma puoi ancora ripassare i quiz salvati! (${remaining} pagine rimaste su ${max})`)
       return false
     }
     return true
@@ -147,7 +165,7 @@ export default function App({ user, profile: initialProfile }) {
       return
     }
 
-    if (!(await checkCanGenerate())) return
+    if (!(await checkCanGenerate(selectedPages.length))) return
     setPhase(PHASES.LOADING); setError(null)
     const msgTimer = setInterval(() => setLoadingMsgIdx(p => (p + 1) % loadingMessages.length), 2500)
 
@@ -163,8 +181,10 @@ export default function App({ user, profile: initialProfile }) {
         page_start: selectedPages[0].page_number, page_end: selectedPages[selectedPages.length - 1].page_number,
       }).select().single()
 
+      // Update page count and session count
+      const { data: current } = await supabase.from('profiles').select('daily_pages_used, free_sessions_used').eq('id', user.id).single()
       await supabase.from('profiles').update({
-        daily_quiz_count: (dailyLimit?.max || 10) - (dailyLimit?.remaining || 10) + 1,
+        daily_pages_used: (current?.daily_pages_used || 0) + selectedPages.length,
         free_sessions_used: (access?.free_sessions_used || 0) + 1,
       }).eq('id', user.id)
 
@@ -179,7 +199,7 @@ export default function App({ user, profile: initialProfile }) {
   }
 
   const handleGenerateFromImages = async (files) => {
-    if (!(await checkCanGenerate())) return
+    if (!(await checkCanGenerate(files.length))) return
     setPhase(PHASES.LOADING); setError(null)
     const msgTimer = setInterval(() => setLoadingMsgIdx(p => (p + 1) % loadingMessages.length), 2500)
 
@@ -189,8 +209,9 @@ export default function App({ user, profile: initialProfile }) {
         user_id: user.id, topic: quizData.topic, questions: quizData.questions, source_type: 'photo',
       }).select().single()
 
+      const { data: current } = await supabase.from('profiles').select('daily_pages_used, free_sessions_used').eq('id', user.id).single()
       await supabase.from('profiles').update({
-        daily_quiz_count: (dailyLimit?.max || 10) - (dailyLimit?.remaining || 10) + 1,
+        daily_pages_used: (current?.daily_pages_used || 0) + files.length,
         free_sessions_used: (access?.free_sessions_used || 0) + 1,
       }).eq('id', user.id)
 
@@ -231,7 +252,7 @@ export default function App({ user, profile: initialProfile }) {
 
   const goHome = () => {
     setQuiz(null); setAnswers([]); setError(null); setSelectedSubject(null); setSelectedPages([]); setAvailablePages([]); setSectionFilter(null); setAvailableSections([])
-    loadSavedQuizzes(); loadDailyLimit(); loadAccess(); setPhase(PHASES.HOME)
+    loadSavedQuizzes(); loadPageLimit(); loadAccess(); setPhase(PHASES.HOME)
     supabase.from('settings').select('value').eq('key', 'page_display').single().then(({ data }) => {
       if (data) setDisplayMode(data.value)
     })
@@ -257,7 +278,7 @@ export default function App({ user, profile: initialProfile }) {
         </div>
       </div>
 
-      {dailyLimit && <p style={{ fontFamily: FONTS.body, fontSize: '0.78rem', color: COLORS.grayLight, marginBottom: '1rem' }}>Quiz nuovi oggi: {dailyLimit.remaining}/{dailyLimit.max}</p>}
+      {pageLimit && <p style={{ fontFamily: FONTS.body, fontSize: '0.78rem', color: COLORS.grayLight, marginBottom: '1rem' }}>Pagine disponibili oggi: {pageLimit.remaining}/{pageLimit.max}</p>}
 
       {access && !access.has_paid && !access.is_free_access && !access.is_admin && (
         <div style={{ padding: '0.5rem 0.75rem', background: COLORS.bgYellow, borderRadius: '10px', marginBottom: '1rem' }}>
@@ -379,7 +400,7 @@ export default function App({ user, profile: initialProfile }) {
               {selectedPages.length > 0 && (
                 <div style={{ padding: '0.6rem 0.85rem', background: COLORS.bgPurple, borderRadius: '12px', marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
-                    <p style={{ fontFamily: FONTS.heading, fontSize: '0.9rem', color: COLORS.purple, margin: 0 }}>{selectedPages.length} pagin{selectedPages.length === 1 ? 'a' : 'e'} selezionat{selectedPages.length === 1 ? 'a' : 'e'}</p>
+                    <p style={{ fontFamily: FONTS.heading, fontSize: '0.9rem', color: COLORS.purple, margin: 0 }}>{selectedPages.length}/{MAX_PAGES_PER_QUIZ} pagin{selectedPages.length === 1 ? 'a' : 'e'} selezionat{selectedPages.length === 1 ? 'a' : 'e'}</p>
                     <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.grayLight, margin: 0 }}>{getProposedCount(selectedPages.length, selectedPages.map(p => p.extracted_text || ''))} domande</p>
                   </div>
                   <button onClick={() => setSelectedPages([])} style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: COLORS.orange, background: 'none', border: 'none', cursor: 'pointer' }}>Deseleziona</button>

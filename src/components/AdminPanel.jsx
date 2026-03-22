@@ -50,11 +50,23 @@ function getNextMonthDate(fromDate) {
 /* ─── ADMIN USERS ─── */
 function AdminUsers() {
   const [users, setUsers] = useState([])
+  const [quizStats, setQuizStats] = useState({})
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(null)
   const [editForm, setEditForm] = useState({ child_name: '', school_year: '1', section: '' })
   useEffect(() => { loadUsers() }, [])
-  const loadUsers = async () => { const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false }); setUsers(data || []); setLoading(false) }
+  const loadUsers = async () => {
+    const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false })
+    setUsers(data || [])
+    // Load quiz stats for each user
+    const { data: results } = await supabase.from('quiz_results').select('user_id')
+    const stats = {}
+    if (results) {
+      results.forEach(r => { stats[r.user_id] = (stats[r.user_id] || 0) + 1 })
+    }
+    setQuizStats(stats)
+    setLoading(false)
+  }
   const toggleFreeAccess = async (userId, current) => { await supabase.from('profiles').update({ is_free_access: !current }).eq('id', userId); loadUsers() }
   const activatePaid = async (userId) => { await supabase.from('profiles').update({ has_paid: true, paid_until: getNextMonthDate(new Date()) }).eq('id', userId); loadUsers() }
   const deactivatePaid = async (userId) => { await supabase.from('profiles').update({ has_paid: false, paid_until: null }).eq('id', userId); loadUsers() }
@@ -97,7 +109,9 @@ function AdminUsers() {
                   {u.is_free_access ? 'Gratuito' : u.has_paid && !expired ? `Pagato → ${formatDate(u.paid_until)}` : u.has_paid && expired ? `Scaduto ${formatDate(u.paid_until)}` : `${u.free_sessions_used}/${u.max_free_sessions} gratis`}
                 </span>
               </div>
-              <p style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: COLORS.grayLight, margin: '0 0 0.5rem' }}>{u.email}</p>
+              <p style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: COLORS.grayLight, margin: '0 0 0.5rem' }}>
+                {u.email} · 📝 {quizStats[u.id] || 0} quiz svolti · 📄 {u.daily_pages_used || 0}/{u.max_daily_pages || 20} pagine oggi
+              </p>
               
               {/* Edit form */}
               {isEditing && (

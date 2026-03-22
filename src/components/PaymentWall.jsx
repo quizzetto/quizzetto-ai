@@ -2,11 +2,12 @@ import { COLORS, FONTS, btnPrimary, pressStyle, card } from '../lib/styles'
 
 export default function PaymentWall({ onBack }) {
   const paypalEmail = import.meta.env.VITE_PAYPAL_EMAIL || ''
-  const price = '3.00'
-
-  // PayPal.me link or button
-  const paypalLink = paypalEmail 
-    ? `https://www.paypal.me/${paypalEmail}/${price}EUR`
+  
+  // Use PayPal.me if it looks like a username, otherwise use email payment link
+  const paypalLink = paypalEmail.includes('@')
+    ? `https://paypal.me/${paypalEmail}?amount=3&currency_code=EUR`
+    : paypalEmail
+    ? `https://paypal.me/${paypalEmail}/3EUR`
     : '#'
 
   return (
@@ -58,14 +59,15 @@ export default function PaymentWall({ onBack }) {
           textAlign: 'center',
           boxShadow: '0 4px 15px rgba(0,112,186,0.3)',
           marginBottom: '0.75rem',
+          boxSizing: 'border-box',
         }}
       >
-        💳 Paga con PayPal
+        💳 Paga con PayPal - 3€
       </a>
 
       <p style={{ fontFamily: FONTS.body, fontSize: '0.8rem', color: COLORS.grayLight, marginBottom: '1rem', lineHeight: 1.4 }}>
-        Dopo il pagamento, il tuo account verrà attivato.<br/>
-        Per assistenza scrivi a {paypalEmail}
+        Dopo il pagamento, il tuo account verrà attivato entro 24 ore.<br/>
+        Per assistenza: {import.meta.env.VITE_CONTACT_EMAIL || paypalEmail}
       </p>
 
       <button onClick={onBack} {...pressStyle}
