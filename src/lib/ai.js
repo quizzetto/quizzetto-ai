@@ -30,6 +30,22 @@ function getQuestionsCount(pageCount) {
   return 20 + Math.max(0, (pageCount - 1) * 10)
 }
 
+function shuffleOptions(quiz) {
+  quiz.questions = quiz.questions.map(q => {
+    // Create array of indices [0,1,2,3] and shuffle
+    const indices = [0, 1, 2, 3]
+    for (let i = indices.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [indices[i], indices[j]] = [indices[j], indices[i]]
+    }
+    // Rearrange options and update correct index
+    const newOptions = indices.map(i => q.options[i])
+    const newCorrect = indices.indexOf(q.correct)
+    return { ...q, options: newOptions, correct: newCorrect }
+  })
+  return quiz
+}
+
 export function getProposedCount(pageCount, texts) {
   if (texts) return getProposedCountFromTexts(texts)
   return 10 + Math.max(0, (pageCount - 1) * 5)
@@ -146,7 +162,7 @@ Il campo "difficulty" può essere "facile", "media", "difficile".`
 
   const data = await response.json()
   const text = data.content.filter(i => i.type === 'text').map(i => i.text).join('')
-  return JSON.parse(text.replace(/```json|```/g, '').trim())
+  return shuffleOptions(JSON.parse(text.replace(/```json|```/g, '').trim()))
 }
 
 export async function generateQuizFromImages(images, apiKey) {
@@ -233,7 +249,7 @@ Il campo "difficulty" può essere "facile", "media", "difficile".`
     })
   })
 
-  const data = await response.json()
-  const text = data.content.filter(i => i.type === 'text').map(i => i.text).join('')
-  return JSON.parse(text.replace(/```json|```/g, '').trim())
+  const data2 = await response.json()
+  const text2 = data2.content.filter(i => i.type === 'text').map(i => i.text).join('')
+  return shuffleOptions(JSON.parse(text2.replace(/```json|```/g, '').trim()))
 }
