@@ -329,6 +329,16 @@ export default function App({ user, profile: initialProfile }) {
       sectionFilter === null ? availablePages :
       availablePages.filter(p => p.section === sectionFilter)
 
+    const [displayMode, setDisplayMode] = useState('thumbnails')
+    useEffect(() => {
+      supabase.from('settings').select('value').eq('key', 'page_display').single().then(({ data }) => {
+        if (data) setDisplayMode(data.value)
+      })
+    }, [])
+
+    const showThumbnails = displayMode === 'thumbnails'
+    const pageColors = [COLORS.purple, COLORS.green, COLORS.pink, '#e17055', '#fdcb6e', '#00cec9', '#6c5ce7', '#fd79a8']
+
     return (
     <div>
       <button onClick={() => { if (sectionFilter !== null && sectionFilter !== '__choose__' && availableSections.length > 1) { setSectionFilter('__choose__'); setSelectedPages([]) } else { setPhase(PHASES.BROWSE) } }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, fontSize: '0.9rem', color: COLORS.purpleLight, marginBottom: '1rem' }}>← Indietro</button>
@@ -376,26 +386,43 @@ export default function App({ user, profile: initialProfile }) {
               )}
 
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem', justifyContent: 'center', marginBottom: '1.25rem', maxHeight: '380px', overflowY: 'auto', padding: '0.25rem' }}>
-                {filteredPages.map(p => {
+                {filteredPages.map((p, idx) => {
                   const isSelected = selectedPages.find(sp => sp.id === p.id)
+                  const bgColor = pageColors[idx % pageColors.length]
                   return (
                     <div key={p.id} onClick={() => togglePageSelection(p)}
                       style={{
-                        width: '100px', borderRadius: '12px', overflow: 'hidden', cursor: 'pointer',
+                        width: showThumbnails ? '85px' : '75px',
+                        borderRadius: '12px', overflow: 'hidden', cursor: 'pointer',
                         border: isSelected ? `3px solid ${COLORS.purple}` : `2px solid ${COLORS.grayBorder}`,
                         background: 'white', transition: 'all 0.2s ease',
-                        transform: isSelected ? 'scale(1.03)' : 'scale(1)',
+                        transform: isSelected ? 'scale(1.05)' : 'scale(1)',
                         boxShadow: isSelected ? '0 4px 15px rgba(108,92,231,0.25)' : '0 2px 6px rgba(0,0,0,0.05)',
                       }}>
                       <div style={{ position: 'relative' }}>
-                        <img src={p.image_url} alt={`pag ${p.page_number}`} style={{ width: '100%', height: '130px', objectFit: 'cover', display: 'block' }}
-                          onError={e => { e.target.style.background = COLORS.bgPurple }} />
+                        {showThumbnails ? (
+                          <img src={p.image_url} alt={`pag ${p.page_number}`}
+                            style={{ width: '100%', height: '105px', objectFit: 'cover', display: 'block' }}
+                            onError={e => { e.target.style.background = COLORS.bgPurple }} />
+                        ) : (
+                          <div style={{
+                            width: '100%', height: '75px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            background: isSelected ? COLORS.purple : bgColor + '18',
+                          }}>
+                            <span style={{
+                              fontFamily: FONTS.heading, fontSize: '1.5rem', fontWeight: 700,
+                              color: isSelected ? 'white' : bgColor,
+                            }}>
+                              {p.page_number}
+                            </span>
+                          </div>
+                        )}
                         {isSelected && (
-                          <div style={{ position: 'absolute', top: '5px', right: '5px', width: '24px', height: '24px', borderRadius: '50%', background: COLORS.purple, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '0.75rem', fontWeight: 700, boxShadow: '0 2px 6px rgba(0,0,0,0.3)' }}>✓</div>
+                          <div style={{ position: 'absolute', top: '4px', right: '4px', width: '22px', height: '22px', borderRadius: '50%', background: COLORS.purple, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '0.7rem', fontWeight: 700, boxShadow: '0 2px 6px rgba(0,0,0,0.3)' }}>✓</div>
                         )}
                       </div>
-                      <div style={{ padding: '0.35rem', textAlign: 'center' }}>
-                        <p style={{ fontFamily: FONTS.heading, fontSize: '0.82rem', color: isSelected ? COLORS.purple : COLORS.dark, margin: 0 }}>Pag. {p.page_number}</p>
+                      <div style={{ padding: '0.3rem', textAlign: 'center' }}>
+                        <p style={{ fontFamily: FONTS.heading, fontSize: '0.85rem', color: isSelected ? COLORS.purple : COLORS.dark, margin: 0 }}>Pag. {p.page_number}</p>
                       </div>
                     </div>
                   )

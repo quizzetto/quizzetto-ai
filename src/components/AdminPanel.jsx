@@ -566,6 +566,56 @@ function AdminPages() {
   )
 }
 
+/* ─── ADMIN SETTINGS ─── */
+function AdminSettings() {
+  const [pageDisplay, setPageDisplay] = useState('thumbnails')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    supabase.from('settings').select('value').eq('key', 'page_display').single().then(({ data }) => {
+      if (data) setPageDisplay(data.value)
+    })
+  }, [])
+
+  const saveDisplay = async (mode) => {
+    setSaving(true)
+    setPageDisplay(mode)
+    await supabase.from('settings').upsert({ key: 'page_display', value: mode })
+    setSaving(false)
+  }
+
+  return (
+    <div>
+      <h3 style={{ fontFamily: FONTS.heading, fontSize: '1.1rem', color: COLORS.dark, marginBottom: '0.75rem' }}>⚙️ Impostazioni</h3>
+      
+      <div style={{ padding: '0.85rem', background: COLORS.bgPurple, borderRadius: '12px', marginBottom: '1rem' }}>
+        <p style={{ fontFamily: FONTS.heading, fontSize: '0.9rem', color: COLORS.purple, marginBottom: '0.6rem' }}>Visualizzazione pagine nel carosello</p>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button onClick={() => saveDisplay('thumbnails')}
+            style={{
+              flex: 1, padding: '0.75rem 0.5rem', borderRadius: '12px', border: pageDisplay === 'thumbnails' ? `2px solid ${COLORS.purple}` : `2px solid ${COLORS.grayBorder}`,
+              background: pageDisplay === 'thumbnails' ? COLORS.bgPurple : 'white', cursor: 'pointer', textAlign: 'center',
+            }}>
+            <div style={{ fontSize: '1.5rem', marginBottom: '0.3rem' }}>🖼️</div>
+            <p style={{ fontFamily: FONTS.heading, fontSize: '0.8rem', color: pageDisplay === 'thumbnails' ? COLORS.purple : COLORS.dark, margin: 0 }}>Miniature</p>
+            <p style={{ fontFamily: FONTS.body, fontSize: '0.65rem', color: COLORS.grayLight, margin: '0.15rem 0 0' }}>Anteprima immagini</p>
+          </button>
+          <button onClick={() => saveDisplay('numbers')}
+            style={{
+              flex: 1, padding: '0.75rem 0.5rem', borderRadius: '12px', border: pageDisplay === 'numbers' ? `2px solid ${COLORS.purple}` : `2px solid ${COLORS.grayBorder}`,
+              background: pageDisplay === 'numbers' ? COLORS.bgPurple : 'white', cursor: 'pointer', textAlign: 'center',
+            }}>
+            <div style={{ fontSize: '1.5rem', marginBottom: '0.3rem' }}>🔢</div>
+            <p style={{ fontFamily: FONTS.heading, fontSize: '0.8rem', color: pageDisplay === 'numbers' ? COLORS.purple : COLORS.dark, margin: 0 }}>Solo numeri</p>
+            <p style={{ fontFamily: FONTS.body, fontSize: '0.65rem', color: COLORS.grayLight, margin: '0.15rem 0 0' }}>Quadrati colorati</p>
+          </button>
+        </div>
+        {saving && <p style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: COLORS.green, marginTop: '0.4rem' }}>Salvato!</p>}
+      </div>
+    </div>
+  )
+}
+
 /* ─── MAIN ADMIN ─── */
 export default function AdminPanel({ onBack }) {
   const [tab, setTab] = useState('pages')
@@ -573,13 +623,14 @@ export default function AdminPanel({ onBack }) {
     { id: 'pages', label: '📸 Pagine', component: <AdminPages /> },
     { id: 'subjects', label: '📚 Materie', component: <AdminSubjects /> },
     { id: 'users', label: '👥 Utenti', component: <AdminUsers /> },
+    { id: 'settings', label: '⚙️ Impost.', component: <AdminSettings /> },
   ]
   return (
     <div>
       <button onClick={onBack} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, fontSize: '0.9rem', color: COLORS.purpleLight, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>← Torna all'app</button>
       <h2 style={{ fontFamily: FONTS.heading, fontSize: '1.3rem', color: COLORS.dark, marginBottom: '1rem' }}>⚙️ Pannello Admin</h2>
       <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '1.25rem' }}>
-        {tabs.map(t => (<button key={t.id} onClick={() => setTab(t.id)} style={{ flex: 1, padding: '0.5rem', borderRadius: '10px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, fontSize: '0.78rem', fontWeight: 600, background: tab === t.id ? COLORS.purple : COLORS.grayBorder, color: tab === t.id ? 'white' : COLORS.gray, transition: 'all 0.2s ease' }}>{t.label}</button>))}
+        {tabs.map(t => (<button key={t.id} onClick={() => setTab(t.id)} style={{ flex: 1, padding: '0.5rem', borderRadius: '10px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, fontSize: '0.72rem', fontWeight: 600, background: tab === t.id ? COLORS.purple : COLORS.grayBorder, color: tab === t.id ? 'white' : COLORS.gray, transition: 'all 0.2s ease' }}>{t.label}</button>))}
       </div>
       {tabs.find(t => t.id === tab)?.component}
     </div>
