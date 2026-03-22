@@ -266,7 +266,7 @@ export default function App({ user, profile: initialProfile }) {
 
       {error && <div style={{ background: COLORS.bgRed, border: '1px solid rgba(255,107,107,0.15)', borderRadius: '12px', padding: '0.7rem 1rem', marginBottom: '1rem', fontFamily: FONTS.body, fontSize: '0.85rem', color: COLORS.orange }}>{error}</div>}
 
-      <button onClick={() => setPhase(PHASES.BROWSE)} {...pressStyle}
+      <button onClick={() => { supabase.from('settings').select('value').eq('key', 'page_display').single().then(({ data }) => { if (data) setDisplayMode(data.value) }); setPhase(PHASES.BROWSE) }} {...pressStyle}
         style={{ ...btnPrimary, width: '100%', padding: '1rem', fontSize: '1.05rem', marginBottom: '0.65rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
         📖 Quiz dalle pagine del libro
       </button>
