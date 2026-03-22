@@ -231,6 +231,9 @@ export default function App({ user, profile: initialProfile }) {
   const goHome = () => {
     setQuiz(null); setAnswers([]); setError(null); setSelectedSubject(null); setSelectedPages([]); setAvailablePages([]); setSectionFilter(null); setAvailableSections([])
     loadSavedQuizzes(); loadDailyLimit(); loadAccess(); setPhase(PHASES.HOME)
+    supabase.from('settings').select('value').eq('key', 'page_display').single().then(({ data }) => {
+      if (data) setDisplayMode(data.value)
+    })
   }
 
   const handleLogout = async () => { await supabase.auth.signOut() }
