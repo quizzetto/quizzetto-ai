@@ -139,7 +139,8 @@ export default function App({ user, profile: initialProfile }) {
     if (existingQuizzes && existingQuizzes.length > 0) {
       // Use existing quiz with random questions
       const existing = existingQuizzes[0]
-      const proposedCount = getProposedCount(selectedPages.length)
+      const combinedText = selectedPages.map(p => p.extracted_text || '').join('\n')
+      const proposedCount = getProposedCount(selectedPages.length, combinedText)
       const randomQuestions = pickRandomQuestions(existing.questions, proposedCount)
       setQuiz({ ...existing, dbId: existing.id, allQuestions: existing.questions, questions: randomQuestions })
       setPhase(PHASES.SETUP)
@@ -168,7 +169,7 @@ export default function App({ user, profile: initialProfile }) {
 
       quizData.dbId = saved?.id
       quizData.allQuestions = quizData.questions
-      quizData.questions = pickRandomQuestions(quizData.questions, getProposedCount(selectedPages.length))
+      quizData.questions = pickRandomQuestions(quizData.questions, getProposedCount(selectedPages.length, combinedText))
       setQuiz(quizData); setPhase(PHASES.SETUP)
     } catch (err) {
       console.error(err); setError('Ops! Qualcosa è andato storto. Riprova!'); setPhase(PHASES.HOME)
@@ -203,10 +204,9 @@ export default function App({ user, profile: initialProfile }) {
   }
 
   const handleLoadSaved = (savedQuiz) => {
-    const pageCount = savedQuiz.page_end && savedQuiz.page_start 
-      ? savedQuiz.page_end - savedQuiz.page_start + 1 
-      : 1
-    const proposedCount = getProposedCount(pageCount)
+    // Derive proposed count from pool size (pool = 2x proposed)
+    const totalInPool = savedQuiz.questions?.length || 10
+    const proposedCount = Math.max(3, Math.round(totalInPool / 2))
     const randomQuestions = pickRandomQuestions(savedQuiz.questions, proposedCount)
     setQuiz({ ...savedQuiz, dbId: savedQuiz.id, allQuestions: savedQuiz.questions, questions: randomQuestions })
     setPhase(PHASES.SETUP)
@@ -379,7 +379,7 @@ export default function App({ user, profile: initialProfile }) {
                 <div style={{ padding: '0.6rem 0.85rem', background: COLORS.bgPurple, borderRadius: '12px', marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <p style={{ fontFamily: FONTS.heading, fontSize: '0.9rem', color: COLORS.purple, margin: 0 }}>{selectedPages.length} pagin{selectedPages.length === 1 ? 'a' : 'e'} selezionat{selectedPages.length === 1 ? 'a' : 'e'}</p>
-                    <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.grayLight, margin: 0 }}>{getProposedCount(selectedPages.length)} domande</p>
+                    <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.grayLight, margin: 0 }}>{getProposedCount(selectedPages.length, selectedPages.map(p => p.extracted_text || '').join('\n'))} domande</p>
                   </div>
                   <button onClick={() => setSelectedPages([])} style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: COLORS.orange, background: 'none', border: 'none', cursor: 'pointer' }}>Deseleziona</button>
                 </div>
