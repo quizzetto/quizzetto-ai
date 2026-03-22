@@ -113,6 +113,16 @@ REGOLE:
 - Ogni domanda deve avere una spiegazione chiara della risposta corretta
 - Varia il più possibile la formulazione delle domande
 
+REGOLE IMPORTANTI PER LE RISPOSTE:
+- TUTTE e 4 le opzioni devono avere una lunghezza SIMILE (stesso numero di parole circa)
+- Le risposte sbagliate devono essere PLAUSIBILI e credibili, non ovviamente errate
+- Le risposte sbagliate devono riguardare lo stesso argomento della domanda
+- NON mettere mai la risposta corretta sempre più lunga o più dettagliata delle altre
+- Mescola la posizione della risposta corretta (a volte A, a volte B, C o D)
+- Le risposte sbagliate devono sembrare vere a chi non ha studiato bene
+- Evita risposte assurde o chiaramente impossibili
+- Per le domande difficili, usa risposte sbagliate che contengono elementi parzialmente veri
+
 Rispondi SOLO con un JSON valido (senza markdown, senza backtick) con questa struttura:
 {
   "topic": "${topic}",
@@ -189,6 +199,16 @@ REGOLE:
 - Usa un linguaggio semplice e adatto ai bambini
 - Ogni domanda deve avere una spiegazione chiara della risposta corretta
 - Varia il più possibile la formulazione delle domande
+
+REGOLE IMPORTANTI PER LE RISPOSTE:
+- TUTTE e 4 le opzioni devono avere una lunghezza SIMILE (stesso numero di parole circa)
+- Le risposte sbagliate devono essere PLAUSIBILI e credibili, non ovviamente errate
+- Le risposte sbagliate devono riguardare lo stesso argomento della domanda
+- NON mettere mai la risposta corretta sempre più lunga o più dettagliata delle altre
+- Mescola la posizione della risposta corretta (a volte A, a volte B, C o D)
+- Le risposte sbagliate devono sembrare vere a chi non ha studiato bene
+- Evita risposte assurde o chiaramente impossibili
+- Per le domande difficili, usa risposte sbagliate che contengono elementi parzialmente veri
 
 Rispondi SOLO con un JSON valido (senza markdown, senza backtick) con questa struttura:
 {
