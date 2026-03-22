@@ -5,7 +5,7 @@ function countWords(text) {
   return text.trim().split(/\s+/).filter(w => w.length > 0).length
 }
 
-function getProposedCountFromText(text) {
+function getProposedCountForSinglePage(text) {
   const words = countWords(text)
   if (words < 50) return 3
   if (words < 150) return 5
@@ -13,9 +13,16 @@ function getProposedCountFromText(text) {
   return 10
 }
 
-function getQuestionsCountFromText(text) {
+// Accepts either a single text string or an array of page texts
+function getProposedCountFromTexts(texts) {
+  if (!texts) return 10
+  const textArray = Array.isArray(texts) ? texts : [texts]
+  return textArray.reduce((sum, t) => sum + getProposedCountForSinglePage(t), 0)
+}
+
+function getQuestionsCountFromTexts(texts) {
   // Pool generato: doppio delle domande proposte
-  return getProposedCountFromText(text) * 2
+  return getProposedCountFromTexts(texts) * 2
 }
 
 // Legacy fixed count (for photo uploads where we don't have text yet)
@@ -23,8 +30,8 @@ function getQuestionsCount(pageCount) {
   return 20 + Math.max(0, (pageCount - 1) * 10)
 }
 
-export function getProposedCount(pageCount, text) {
-  if (text) return getProposedCountFromText(text)
+export function getProposedCount(pageCount, texts) {
+  if (texts) return getProposedCountFromTexts(texts)
   return 10 + Math.max(0, (pageCount - 1) * 5)
 }
 
@@ -70,8 +77,8 @@ export function pickRandomQuestions(allQuestions, count = 10) {
   return picked.map((q, i) => ({ ...q, id: i + 1 }))
 }
 
-export async function generateQuizFromText(contentText, topic, pageCount, apiKey) {
-  const totalQuestions = getQuestionsCountFromText(contentText)
+export async function generateQuizFromText(contentText, topic, pageCount, apiKey, pageTexts) {
+  const totalQuestions = pageTexts ? getQuestionsCountFromTexts(pageTexts) : getQuestionsCount(pageCount)
   const dist = getDifficultyDistribution(totalQuestions)
 
   const response = await fetch(ANTHROPIC_API_URL, {
