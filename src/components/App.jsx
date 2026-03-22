@@ -32,11 +32,15 @@ export default function App({ user, profile: initialProfile }) {
   const [access, setAccess] = useState(null)
   const [dailyLimit, setDailyLimit] = useState(null)
   const [loadingMsgIdx, setLoadingMsgIdx] = useState(0)
+  const [displayMode, setDisplayMode] = useState('thumbnails')
 
   const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY
 
   useEffect(() => {
     loadAccess(); loadSubjects(); loadSavedQuizzes(); loadDailyLimit(); checkPaymentExpiry()
+    supabase.from('settings').select('value').eq('key', 'page_display').single().then(({ data }) => {
+      if (data) setDisplayMode(data.value)
+    })
   }, [])
 
   const loadAccess = async () => {
@@ -328,13 +332,6 @@ export default function App({ user, profile: initialProfile }) {
     const filteredPages = sectionFilter === '__choose__' ? [] :
       sectionFilter === null ? availablePages :
       availablePages.filter(p => p.section === sectionFilter)
-
-    const [displayMode, setDisplayMode] = useState('thumbnails')
-    useEffect(() => {
-      supabase.from('settings').select('value').eq('key', 'page_display').single().then(({ data }) => {
-        if (data) setDisplayMode(data.value)
-      })
-    }, [])
 
     const showThumbnails = displayMode === 'thumbnails'
     const pageColors = [COLORS.purple, COLORS.green, COLORS.pink, '#e17055', '#fdcb6e', '#00cec9', '#6c5ce7', '#fd79a8']
