@@ -138,6 +138,9 @@ REGOLE:
 - Usa un linguaggio semplice e adatto ai bambini
 - Ogni domanda deve avere una spiegazione chiara della risposta corretta
 - Varia il più possibile la formulazione delle domande
+- Basa le domande ESCLUSIVAMENTE sul testo scritto, NON fare domande su immagini, foto, illustrazioni, grafici o mappe presenti nella pagina
+- Ignora completamente le descrizioni tra parentesi quadre [...] che si riferiscono a elementi visivi
+- Aggiungi 1 domanda di logica/ragionamento collegata all'argomento trattato (es: "Se... allora cosa succederebbe?")
 
 REGOLE IMPORTANTI PER LE RISPOSTE:
 - TUTTE e 4 le opzioni devono avere una lunghezza SIMILE (stesso numero di parole circa)
@@ -148,6 +151,7 @@ REGOLE IMPORTANTI PER LE RISPOSTE:
 - Le risposte sbagliate devono sembrare vere a chi non ha studiato bene
 - Evita risposte assurde o chiaramente impossibili
 - Per le domande difficili, usa risposte sbagliate che contengono elementi parzialmente veri
+- Se la risposta corretta ha 3-5 parole, anche le sbagliate devono avere 3-5 parole
 
 Rispondi SOLO con un JSON valido (senza markdown, senza backtick) con questa struttura:
 {
@@ -225,6 +229,8 @@ REGOLE:
 - Usa un linguaggio semplice e adatto ai bambini
 - Ogni domanda deve avere una spiegazione chiara della risposta corretta
 - Varia il più possibile la formulazione delle domande
+- Basa le domande ESCLUSIVAMENTE sul testo scritto visibile nella pagina, NON fare domande su immagini, foto, illustrazioni, grafici o mappe
+- Aggiungi 1 domanda di logica/ragionamento collegata all'argomento trattato (es: "Se... allora cosa succederebbe?")
 
 REGOLE IMPORTANTI PER LE RISPOSTE:
 - TUTTE e 4 le opzioni devono avere una lunghezza SIMILE (stesso numero di parole circa)
@@ -235,6 +241,7 @@ REGOLE IMPORTANTI PER LE RISPOSTE:
 - Le risposte sbagliate devono sembrare vere a chi non ha studiato bene
 - Evita risposte assurde o chiaramente impossibili
 - Per le domande difficili, usa risposte sbagliate che contengono elementi parzialmente veri
+- Se la risposta corretta ha 3-5 parole, anche le sbagliate devono avere 3-5 parole
 
 Rispondi SOLO con un JSON valido (senza markdown, senza backtick) con questa struttura:
 {
