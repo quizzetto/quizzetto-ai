@@ -136,7 +136,7 @@ function AdminUsers() {
                 {u.email} · Registrato: {formatDateTime(u.created_at)}
               </p>
               <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.grayLight, margin: '0 0 0.5rem' }}>
-                📝 {quizStats.counts?.[u.id] || 0} quiz · 📄 {quizStats.pages?.[u.id] || 0} pagine totali · 📄 {u.daily_pages_used || 0}/{u.max_daily_pages || 20} oggi
+                📝 {quizStats.counts?.[u.id] || 0} quiz tot. · 📄 {quizStats.pages?.[u.id] || 0} pagine tot. · 📄 {u.daily_pages_used || 0}/{u.max_daily_pages || 20} oggi
               </p>
               
               {/* Edit form */}
