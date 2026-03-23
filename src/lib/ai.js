@@ -151,7 +151,7 @@ REGOLE IMPORTANTI PER LE RISPOSTE:
 - Le risposte sbagliate devono sembrare vere a chi non ha studiato bene
 - Evita risposte assurde o chiaramente impossibili
 - Per le domande difficili, usa risposte sbagliate che contengono elementi parzialmente veri
-- Se la risposta corretta ha 3-5 parole, anche le sbagliate devono avere 3-5 parole
+- OGNI opzione deve avere lo STESSO numero di parole della risposta corretta (differenza massima 2 parole). Se la corretta ha 4 parole, le sbagliate devono avere 3-5 parole. Se la corretta ha 10 parole, le sbagliate devono avere 8-12 parole. Questo è FONDAMENTALE.
 
 Rispondi SOLO con un JSON valido (senza markdown, senza backtick) con questa struttura:
 {
@@ -241,7 +241,7 @@ REGOLE IMPORTANTI PER LE RISPOSTE:
 - Le risposte sbagliate devono sembrare vere a chi non ha studiato bene
 - Evita risposte assurde o chiaramente impossibili
 - Per le domande difficili, usa risposte sbagliate che contengono elementi parzialmente veri
-- Se la risposta corretta ha 3-5 parole, anche le sbagliate devono avere 3-5 parole
+- OGNI opzione deve avere lo STESSO numero di parole della risposta corretta (differenza massima 2 parole). Se la corretta ha 4 parole, le sbagliate devono avere 3-5 parole. Se la corretta ha 10 parole, le sbagliate devono avere 8-12 parole. Questo è FONDAMENTALE.
 
 Rispondi SOLO con un JSON valido (senza markdown, senza backtick) con questa struttura:
 {
