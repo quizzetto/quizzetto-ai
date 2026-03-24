@@ -1,30 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { COLORS, FONTS, btnPrimary, btnSuccess, btnDanger, btnPink, pressStyle } from '../lib/styles'
-
-const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
-
-async function extractTextFromImage(file, apiKey) {
-  const base64 = await new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result.split(',')[1])
-    reader.onerror = () => reject(new Error('Errore lettura'))
-    reader.readAsDataURL(file)
-  })
-  const content = file.type === 'application/pdf'
-    ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } }
-    : { type: 'image', source: { type: 'base64', media_type: file.type || 'image/jpeg', data: base64 } }
-  const response = await fetch(ANTHROPIC_API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001', max_tokens: 4000,
-      messages: [{ role: 'user', content: [content, { type: 'text', text: 'Estrai TUTTO il testo presente in questa pagina di un libro scolastico. Trascrivi fedelmente mantenendo la struttura. NON aggiungere commenti. Se ci sono immagini/grafici, descrivi brevemente tra parentesi quadre. Rispondi SOLO con il testo estratto.' }] }]
-    })
-  })
-  const data = await response.json()
-  return data.content.filter(i => i.type === 'text').map(i => i.text).join('')
-}
+import { extractTextFromImage, generateQuestionsForPage } from '../lib/ai'
 
 function extractPageNumber(filename) {
   // Remove extension first
@@ -273,7 +250,7 @@ function AdminPages() {
     // Check for duplicates first
     const pageNumbers = files.map(f => f.pageNumber)
     const { data: existing } = await supabase.from('pages')
-      .select('id, page_number, image_url')
+      .select('id, page_number')
       .eq('subject_id', form.subject_id)
       .eq('school_year', form.school_year)
       .in('page_number', pageNumbers)
@@ -282,7 +259,7 @@ function AdminPages() {
     if (form.section) {
       existingFiltered = existingFiltered.filter(e => true) // already filtered by query
       const { data: existSec } = await supabase.from('pages')
-        .select('id, page_number, image_url')
+        .select('id, page_number')
         .eq('subject_id', form.subject_id)
         .eq('school_year', form.school_year)
         .eq('section', form.section)
@@ -290,7 +267,7 @@ function AdminPages() {
       existingFiltered = existSec || []
     } else {
       const { data: existNull } = await supabase.from('pages')
-        .select('id, page_number, image_url')
+        .select('id, page_number')
         .eq('subject_id', form.subject_id)
         .eq('school_year', form.school_year)
         .is('section', null)
@@ -303,10 +280,12 @@ function AdminPages() {
       const action = confirm(`Le pagine ${dupPages} esistono già per questa materia/classe. Vuoi sovrascriverle?\n\nOK = Sovrascrivi\nAnnulla = Salta le pagine duplicate`)
       
       if (action) {
-        // Delete existing duplicates (storage + db)
+        // Delete existing duplicates from db
         for (const ex of existingFiltered) {
-          const fn = ex.image_url.split('/pages/')[1]
-          if (fn) await supabase.storage.from('pages').remove([fn])
+          if (ex.image_url) {
+            const fn = ex.image_url.split('/pages/')[1]
+            if (fn) await supabase.storage.from('pages').remove([fn])
+          }
           await supabase.from('pages').delete().eq('id', ex.id)
         }
       } else {
@@ -332,28 +311,27 @@ function AdminPages() {
 
     for (let i = 0; i < files.length; i++) {
       const f = files[i]
-      setUploadProgress({ current: i + 1, total: files.length, currentFile: f.name, phase: 'upload' })
+      setUploadProgress({ current: i + 1, total: files.length, currentFile: f.name, phase: 'extract' })
 
       try {
-        // 1. Upload image
-        const ext = f.file.name.split('.').pop()
-        const fileName = `${form.subject_id}_${form.school_year}_${f.pageNumber}_${Date.now()}.${ext}`
-        const { error: uploadError } = await supabase.storage.from('pages').upload(fileName, f.file)
-        if (uploadError) throw uploadError
-        const imageUrl = `${supabaseUrl}/storage/v1/object/public/pages/${fileName}`
-
-        // 2. Extract text
-        setUploadProgress({ current: i + 1, total: files.length, currentFile: f.name, phase: 'extract' })
+        // 1. Extract text from image (temporary, not saved)
         let extractedText = ''
         try { extractedText = await extractTextFromImage(f.file, apiKey) } catch (e) { console.error('Extract failed:', e) }
 
-        // 3. Save to database
+        // 2. Generate questions pool (5x)
+        setUploadProgress({ current: i + 1, total: files.length, currentFile: f.name, phase: 'generate' })
+        let questions = []
+        if (extractedText) {
+          try { questions = await generateQuestionsForPage(extractedText, apiKey) } catch (e) { console.error('Generate failed:', e) }
+        }
+
+        // 3. Save to database (NO image_url, NO extracted_text — only questions)
         setUploadProgress({ current: i + 1, total: files.length, currentFile: f.name, phase: 'save' })
         await supabase.from('pages').insert({
           subject_id: form.subject_id, school_year: form.school_year,
           section: form.section || null, page_number: f.pageNumber,
-          image_url: imageUrl, extracted_text: extractedText,
           book_title: form.book_title.trim() || null,
+          questions: questions,
         })
         success++
       } catch (err) {
@@ -370,8 +348,11 @@ function AdminPages() {
 
   const deletePage = async (page) => {
     if (!confirm(`Eliminare pagina ${page.page_number}?`)) return
-    const fileName = page.image_url.split('/pages/')[1]
-    if (fileName) await supabase.storage.from('pages').remove([fileName])
+    // Delete image from storage if it exists (legacy pages)
+    if (page.image_url) {
+      const fileName = page.image_url.split('/pages/')[1]
+      if (fileName) await supabase.storage.from('pages').remove([fileName])
+    }
     await supabase.from('pages').delete().eq('id', page.id); loadData()
   }
 
@@ -406,7 +387,7 @@ function AdminPages() {
 
   const filteredPages = filterSubject ? pages.filter(p => p.subject_id === filterSubject) : pages
   const progressPct = uploadProgress.total > 0 ? (uploadProgress.current / uploadProgress.total) * 100 : 0
-  const phaseLabels = { upload: '📤 Caricamento', extract: '🧠 Estrazione testo', save: '💾 Salvataggio' }
+  const phaseLabels = { extract: '🧠 Estrazione testo', generate: '✏️ Generazione domande', save: '💾 Salvataggio' }
 
   return (
     <div>
@@ -590,16 +571,24 @@ function AdminPages() {
 
       {/* Pages grid */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', maxHeight: '350px', overflowY: 'auto' }}>
-        {filteredPages.map(p => (
+        {filteredPages.map(p => {
+          const qCount = p.questions?.length || 0
+          const pageColors = ['#6c5ce7', '#00b894', '#fd79a8', '#e17055', '#fdcb6e', '#00cec9', '#a29bfe', '#ff7675']
+          const bgColor = pageColors[(p.page_number || 0) % pageColors.length]
+          return (
           <div key={p.id} style={{ width: '90px', borderRadius: '10px', overflow: 'hidden', border: `1px solid ${COLORS.grayBorder}`, background: 'white', position: 'relative' }}>
-            <img src={p.image_url} alt={`pag ${p.page_number}`} style={{ width: '100%', height: '110px', objectFit: 'cover' }} onError={e => { e.target.style.background = COLORS.bgPurple }} />
+            <div style={{ width: '100%', height: '70px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: bgColor + '18' }}>
+              <span style={{ fontFamily: FONTS.heading, fontSize: '1.4rem', fontWeight: 700, color: bgColor }}>{p.page_number}</span>
+            </div>
             <div style={{ padding: '0.3rem', textAlign: 'center' }}>
               <p style={{ fontFamily: FONTS.heading, fontSize: '0.72rem', color: COLORS.dark, margin: 0 }}>{p.subjects?.icon} Pag. {p.page_number}</p>
               <p style={{ fontFamily: FONTS.body, fontSize: '0.6rem', color: COLORS.grayLight, margin: 0 }}>{p.school_year}ª{p.section ? ` ${p.section}` : ''}{p.book_title ? ` · ${p.book_title}` : ''}</p>
+              <p style={{ fontFamily: FONTS.body, fontSize: '0.58rem', color: qCount > 0 ? COLORS.green : COLORS.orange, margin: 0 }}>{qCount > 0 ? `✅ ${qCount} domande` : '⚠️ No domande'}</p>
             </div>
             <button onClick={() => deletePage(p)} style={{ position: 'absolute', top: '3px', right: '3px', background: COLORS.red, color: 'white', border: 'none', borderRadius: '50%', width: '20px', height: '20px', fontSize: '0.6rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 4px rgba(0,0,0,0.3)' }}>✕</button>
           </div>
-        ))}
+          )
+        })}
         {filteredPages.length === 0 && <p style={{ fontFamily: FONTS.body, fontSize: '0.85rem', color: COLORS.grayLight, textAlign: 'center', width: '100%', padding: '1.5rem 0' }}>Nessuna pagina caricata.</p>}
       </div>
     </div>
@@ -608,49 +597,109 @@ function AdminPages() {
 
 /* ─── ADMIN SETTINGS ─── */
 function AdminSettings() {
-  const [pageDisplay, setPageDisplay] = useState('thumbnails')
-  const [saving, setSaving] = useState(false)
+  const [migrating, setMigrating] = useState(false)
+  const [migrationProgress, setMigrationProgress] = useState({ current: 0, total: 0, phase: '' })
+  const [migrationResult, setMigrationResult] = useState(null)
+  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 
-  useEffect(() => {
-    supabase.from('settings').select('value').eq('key', 'page_display').single().then(({ data }) => {
-      if (data) setPageDisplay(data.value)
-    })
-  }, [])
+  const migrateExistingPages = async () => {
+    if (!confirm('Questa operazione genererà le domande per tutte le pagine che hanno testo estratto ma non hanno ancora domande, poi cancellerà il testo e le immagini. Procedere?')) return
+    
+    setMigrating(true)
+    setMigrationResult(null)
+    
+    // Find pages with extracted_text but no questions
+    const { data: pages } = await supabase.from('pages').select('*').not('extracted_text', 'is', null).is('questions', null)
+    
+    if (!pages || pages.length === 0) {
+      // Also check pages with text that already have some questions but need cleanup
+      const { data: allPages } = await supabase.from('pages').select('*').not('extracted_text', 'is', null)
+      if (!allPages || allPages.length === 0) {
+        setMigrationResult({ success: 0, failed: 0, total: 0, message: 'Nessuna pagina da migrare.' })
+        setMigrating(false)
+        return
+      }
+      // These pages have text — generate questions if missing, then clean up
+      await processPages(allPages)
+      return
+    }
+    
+    await processPages(pages)
+  }
 
-  const saveDisplay = async (mode) => {
-    setSaving(true)
-    setPageDisplay(mode)
-    await supabase.from('settings').upsert({ key: 'page_display', value: mode })
-    setSaving(false)
+  const processPages = async (pages) => {
+    let success = 0, failed = 0
+    
+    for (let i = 0; i < pages.length; i++) {
+      const page = pages[i]
+      setMigrationProgress({ current: i + 1, total: pages.length, phase: `Pagina ${page.page_number}` })
+      
+      try {
+        // Generate questions if not already present
+        let questions = page.questions || []
+        if (questions.length === 0 && page.extracted_text) {
+          questions = await generateQuestionsForPage(page.extracted_text, apiKey)
+        }
+        
+        // Delete image from storage if exists
+        if (page.image_url) {
+          const fileName = page.image_url.split('/pages/')[1]
+          if (fileName) await supabase.storage.from('pages').remove([fileName])
+        }
+        
+        // Update: save questions, clear text and image
+        await supabase.from('pages').update({
+          questions: questions,
+          extracted_text: null,
+          image_url: null,
+        }).eq('id', page.id)
+        
+        success++
+      } catch (err) {
+        console.error('Migration failed for page', page.page_number, err)
+        failed++
+      }
+    }
+    
+    setMigrationResult({ success, failed, total: pages.length })
+    setMigrating(false)
   }
 
   return (
     <div>
       <h3 style={{ fontFamily: FONTS.heading, fontSize: '1.1rem', color: COLORS.dark, marginBottom: '0.75rem' }}>⚙️ Impostazioni</h3>
       
-      <div style={{ padding: '0.85rem', background: COLORS.bgPurple, borderRadius: '12px', marginBottom: '1rem' }}>
-        <p style={{ fontFamily: FONTS.heading, fontSize: '0.9rem', color: COLORS.purple, marginBottom: '0.6rem' }}>Visualizzazione pagine nel carosello</p>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <button onClick={() => saveDisplay('thumbnails')}
-            style={{
-              flex: 1, padding: '0.75rem 0.5rem', borderRadius: '12px', border: pageDisplay === 'thumbnails' ? `2px solid ${COLORS.purple}` : `2px solid ${COLORS.grayBorder}`,
-              background: pageDisplay === 'thumbnails' ? COLORS.bgPurple : 'white', cursor: 'pointer', textAlign: 'center',
-            }}>
-            <div style={{ fontSize: '1.5rem', marginBottom: '0.3rem' }}>🖼️</div>
-            <p style={{ fontFamily: FONTS.heading, fontSize: '0.8rem', color: pageDisplay === 'thumbnails' ? COLORS.purple : COLORS.dark, margin: 0 }}>Miniature</p>
-            <p style={{ fontFamily: FONTS.body, fontSize: '0.65rem', color: COLORS.grayLight, margin: '0.15rem 0 0' }}>Anteprima immagini</p>
+      {/* Migration tool */}
+      <div style={{ padding: '0.85rem', background: 'rgba(253,203,110,0.08)', borderRadius: '12px', marginBottom: '1rem', border: '1px solid rgba(253,203,110,0.2)' }}>
+        <p style={{ fontFamily: FONTS.heading, fontSize: '0.9rem', color: '#e67e22', marginBottom: '0.4rem' }}>🔄 Migrazione pagine esistenti</p>
+        <p style={{ fontFamily: FONTS.body, fontSize: '0.78rem', color: COLORS.gray, marginBottom: '0.6rem', lineHeight: 1.5 }}>
+          Genera le domande per le pagine già caricate, poi cancella il testo e le immagini dal database per la massima sicurezza.
+        </p>
+        
+        {migrating && (
+          <div style={{ marginBottom: '0.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
+              <span style={{ fontFamily: FONTS.body, fontSize: '0.78rem', color: '#e67e22' }}>{migrationProgress.phase}</span>
+              <span style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: COLORS.grayLight }}>{migrationProgress.current}/{migrationProgress.total}</span>
+            </div>
+            <div style={{ background: '#eee', borderRadius: '8px', height: '10px', overflow: 'hidden' }}>
+              <div style={{ width: `${migrationProgress.total > 0 ? (migrationProgress.current / migrationProgress.total) * 100 : 0}%`, height: '100%', background: '#e67e22', borderRadius: '8px', transition: 'width 0.5s ease' }} />
+            </div>
+          </div>
+        )}
+        
+        {migrationResult && (
+          <p style={{ fontFamily: FONTS.body, fontSize: '0.78rem', color: migrationResult.failed > 0 ? COLORS.orange : COLORS.green, marginBottom: '0.5rem' }}>
+            {migrationResult.message || `✅ ${migrationResult.success} pagine migrate${migrationResult.failed > 0 ? ` · ❌ ${migrationResult.failed} fallite` : ''}`}
+          </p>
+        )}
+        
+        {!migrating && (
+          <button onClick={migrateExistingPages} style={{ fontSize: '0.8rem', padding: '0.5rem 1rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: '#e67e22', color: 'white' }}>
+            🔄 Avvia migrazione
           </button>
-          <button onClick={() => saveDisplay('numbers')}
-            style={{
-              flex: 1, padding: '0.75rem 0.5rem', borderRadius: '12px', border: pageDisplay === 'numbers' ? `2px solid ${COLORS.purple}` : `2px solid ${COLORS.grayBorder}`,
-              background: pageDisplay === 'numbers' ? COLORS.bgPurple : 'white', cursor: 'pointer', textAlign: 'center',
-            }}>
-            <div style={{ fontSize: '1.5rem', marginBottom: '0.3rem' }}>🔢</div>
-            <p style={{ fontFamily: FONTS.heading, fontSize: '0.8rem', color: pageDisplay === 'numbers' ? COLORS.purple : COLORS.dark, margin: 0 }}>Solo numeri</p>
-            <p style={{ fontFamily: FONTS.body, fontSize: '0.65rem', color: COLORS.grayLight, margin: '0.15rem 0 0' }}>Quadrati colorati</p>
-          </button>
-        </div>
-        {saving && <p style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: COLORS.green, marginTop: '0.4rem' }}>Salvato!</p>}
+        )}
       </div>
     </div>
   )

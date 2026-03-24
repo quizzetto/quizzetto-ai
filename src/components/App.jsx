@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { generateQuizFromText, generateQuizFromImages, pickRandomQuestions, getProposedCount } from '../lib/ai'
+import { generateQuizFromImages, pickRandomQuestions, getProposedCount, getProposedCountFromPool } from '../lib/ai'
 import { COLORS, FONTS, btnPrimary, btnSuccess, btnPink, btnDanger, pressStyle, card } from '../lib/styles'
 import Header from './Header'
 import QuizPlay from './QuizPlay'
@@ -32,15 +32,11 @@ export default function App({ user, profile: initialProfile }) {
   const [access, setAccess] = useState(null)
   const [pageLimit, setPageLimit] = useState(null)
   const [loadingMsgIdx, setLoadingMsgIdx] = useState(0)
-  const [displayMode, setDisplayMode] = useState('thumbnails')
 
   const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY
 
   useEffect(() => {
     loadAccess(); loadSubjects(); loadSavedQuizzes(); loadPageLimit(); checkPaymentExpiry()
-    supabase.from('settings').select('value').eq('key', 'page_display').single().then(({ data }) => {
-      if (data) setDisplayMode(data.value)
-    })
   }, [])
 
   const loadAccess = async () => {
@@ -142,60 +138,38 @@ export default function App({ user, profile: initialProfile }) {
   const handleGenerateFromPages = async () => {
     if (selectedPages.length === 0) return
 
-    // Check if a quiz already exists for these pages
-    const pageStart = selectedPages[0].page_number
-    const pageEnd = selectedPages[selectedPages.length - 1].page_number
-    const { data: existingQuizzes } = await supabase.from('quizzes')
-      .select('*')
-      .eq('subject_id', selectedSubject?.id)
-      .eq('page_start', pageStart)
-      .eq('page_end', pageEnd)
-      .eq('source_type', 'pages')
-      .order('created_at', { ascending: false })
-      .limit(1)
-
-    if (existingQuizzes && existingQuizzes.length > 0) {
-      // Use existing quiz with random questions
-      const existing = existingQuizzes[0]
-      const pageTexts = selectedPages.map(p => p.extracted_text || '')
-      const proposedCount = getProposedCount(selectedPages.length, pageTexts)
-      const randomQuestions = pickRandomQuestions(existing.questions, proposedCount)
-      setQuiz({ ...existing, dbId: existing.id, allQuestions: existing.questions, questions: randomQuestions })
-      setPhase(PHASES.SETUP)
+    // Collect pre-generated questions from selected pages
+    const allPoolQuestions = selectedPages.flatMap(p => p.questions || [])
+    
+    if (allPoolQuestions.length === 0) {
+      setError('Le pagine selezionate non hanno domande generate. Contatta l\'amministratore.')
       return
     }
 
-    if (!(await checkCanGenerate(selectedPages.length))) return
-    setPhase(PHASES.LOADING); setError(null)
-    const msgTimer = setInterval(() => setLoadingMsgIdx(p => (p + 1) % loadingMessages.length), 2500)
+    // Check access (free sessions)
+    const freshAccess = await supabase.rpc('check_user_access', { p_user_id: user.id })
+    setAccess(freshAccess.data)
+    if (freshAccess.data?.needs_payment) { setPhase(PHASES.PAYMENT); return }
 
-    try {
-      const pageTexts = selectedPages.map(p => p.extracted_text || '')
-      const combinedText = selectedPages.map(p => `--- Pagina ${p.page_number} ---\n${p.extracted_text || ''}`).join('\n\n')
-      const topic = `${selectedSubject?.name} - pag. ${selectedPages.map(p => p.page_number).join(', ')}`
-      const quizData = await generateQuizFromText(combinedText, topic, selectedPages.length, apiKey, pageTexts)
+    // Calculate proposed count from pool
+    const questionsArrays = selectedPages.map(p => p.questions || [])
+    const proposedCount = getProposedCountFromPool(questionsArrays)
+    const randomQuestions = pickRandomQuestions(allPoolQuestions, proposedCount)
+    
+    const topic = `${selectedSubject?.name} - pag. ${selectedPages.map(p => p.page_number).join(', ')}`
+    
+    // Update session count (no page count since no API is used)
+    await supabase.from('profiles').update({
+      free_sessions_used: (access?.free_sessions_used || 0) + 1,
+    }).eq('id', user.id)
 
-      const { data: saved } = await supabase.from('quizzes').insert({
-        user_id: user.id, subject_id: selectedSubject?.id, topic: quizData.topic,
-        questions: quizData.questions, source_type: 'pages',
-        page_start: selectedPages[0].page_number, page_end: selectedPages[selectedPages.length - 1].page_number,
-      }).select().single()
-
-      // Update page count and session count
-      const { data: current } = await supabase.from('profiles').select('daily_pages_used, free_sessions_used').eq('id', user.id).single()
-      await supabase.from('profiles').update({
-        daily_pages_used: (current?.daily_pages_used || 0) + selectedPages.length,
-        free_sessions_used: (access?.free_sessions_used || 0) + 1,
-      }).eq('id', user.id)
-
-      quizData.dbId = saved?.id
-      quizData.allQuestions = quizData.questions
-      quizData.questions = pickRandomQuestions(quizData.questions, getProposedCount(selectedPages.length, pageTexts))
-      setQuiz(quizData); setPhase(PHASES.SETUP)
-    } catch (err) {
-      console.error(err); setError('Ops! Qualcosa è andato storto. Riprova!'); setPhase(PHASES.HOME)
-    }
-    clearInterval(msgTimer)
+    setQuiz({
+      topic,
+      allQuestions: allPoolQuestions,
+      questions: randomQuestions,
+      source_type: 'pages',
+    })
+    setPhase(PHASES.SETUP)
   }
 
   const handleGenerateFromImages = async (files) => {
@@ -253,9 +227,6 @@ export default function App({ user, profile: initialProfile }) {
   const goHome = () => {
     setQuiz(null); setAnswers([]); setError(null); setSelectedSubject(null); setSelectedPages([]); setAvailablePages([]); setSectionFilter(null); setAvailableSections([])
     loadSavedQuizzes(); loadPageLimit(); loadAccess(); setPhase(PHASES.HOME)
-    supabase.from('settings').select('value').eq('key', 'page_display').single().then(({ data }) => {
-      if (data) setDisplayMode(data.value)
-    })
   }
 
   const handleLogout = async () => { await supabase.auth.signOut() }
@@ -288,7 +259,7 @@ export default function App({ user, profile: initialProfile }) {
 
       {error && <div style={{ background: COLORS.bgRed, border: '1px solid rgba(255,107,107,0.15)', borderRadius: '12px', padding: '0.7rem 1rem', marginBottom: '1rem', fontFamily: FONTS.body, fontSize: '0.85rem', color: COLORS.orange }}>{error}</div>}
 
-      <button onClick={() => { supabase.from('settings').select('value').eq('key', 'page_display').single().then(({ data }) => { if (data) setDisplayMode(data.value) }); setPhase(PHASES.BROWSE) }} {...pressStyle}
+      <button onClick={() => setPhase(PHASES.BROWSE)} {...pressStyle}
         style={{ ...btnPrimary, width: '100%', padding: '1rem', fontSize: '1.05rem', marginBottom: '0.65rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
         📖 Quiz dalle pagine del libro
       </button>
@@ -358,7 +329,6 @@ export default function App({ user, profile: initialProfile }) {
       sectionFilter === null ? availablePages :
       availablePages.filter(p => p.section === sectionFilter)
 
-    const showThumbnails = displayMode === 'thumbnails'
     const pageColors = [COLORS.purple, COLORS.green, COLORS.pink, '#e17055', '#fdcb6e', '#00cec9', '#6c5ce7', '#fd79a8']
 
     return (
@@ -401,7 +371,7 @@ export default function App({ user, profile: initialProfile }) {
                 <div style={{ padding: '0.6rem 0.85rem', background: COLORS.bgPurple, borderRadius: '12px', marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <p style={{ fontFamily: FONTS.heading, fontSize: '0.9rem', color: COLORS.purple, margin: 0 }}>{selectedPages.length}/{MAX_PAGES_PER_QUIZ} pagin{selectedPages.length === 1 ? 'a' : 'e'} selezionat{selectedPages.length === 1 ? 'a' : 'e'}</p>
-                    <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.grayLight, margin: 0 }}>{getProposedCount(selectedPages.length, selectedPages.map(p => p.extracted_text || ''))} domande</p>
+                    <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.grayLight, margin: 0 }}>{getProposedCountFromPool(selectedPages.map(p => p.questions || []))} domande</p>
                   </div>
                   <button onClick={() => setSelectedPages([])} style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: COLORS.orange, background: 'none', border: 'none', cursor: 'pointer' }}>Deseleziona</button>
                 </div>
@@ -411,34 +381,30 @@ export default function App({ user, profile: initialProfile }) {
                 {filteredPages.map((p, idx) => {
                   const isSelected = selectedPages.find(sp => sp.id === p.id)
                   const bgColor = pageColors[idx % pageColors.length]
+                  const atLimit = !isSelected && selectedPages.length >= MAX_PAGES_PER_QUIZ
                   return (
-                    <div key={p.id} onClick={() => togglePageSelection(p)}
+                    <div key={p.id} onClick={() => !atLimit && togglePageSelection(p)}
                       style={{
-                        width: showThumbnails ? '85px' : '75px',
-                        borderRadius: '12px', overflow: 'hidden', cursor: 'pointer',
+                        width: '75px',
+                        borderRadius: '12px', overflow: 'hidden', cursor: atLimit ? 'not-allowed' : 'pointer',
                         border: isSelected ? `3px solid ${COLORS.purple}` : `2px solid ${COLORS.grayBorder}`,
                         background: 'white', transition: 'all 0.2s ease',
                         transform: isSelected ? 'scale(1.05)' : 'scale(1)',
                         boxShadow: isSelected ? '0 4px 15px rgba(108,92,231,0.25)' : '0 2px 6px rgba(0,0,0,0.05)',
+                        opacity: atLimit ? 0.4 : 1,
                       }}>
                       <div style={{ position: 'relative' }}>
-                        {showThumbnails ? (
-                          <img src={p.image_url} alt={`pag ${p.page_number}`}
-                            style={{ width: '100%', height: '105px', objectFit: 'cover', display: 'block' }}
-                            onError={e => { e.target.style.background = COLORS.bgPurple }} />
-                        ) : (
-                          <div style={{
-                            width: '100%', height: '75px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            background: isSelected ? COLORS.purple : bgColor + '18',
+                        <div style={{
+                          width: '100%', height: '75px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          background: isSelected ? COLORS.purple : bgColor + '18',
+                        }}>
+                          <span style={{
+                            fontFamily: FONTS.heading, fontSize: '1.5rem', fontWeight: 700,
+                            color: isSelected ? 'white' : bgColor,
                           }}>
-                            <span style={{
-                              fontFamily: FONTS.heading, fontSize: '1.5rem', fontWeight: 700,
-                              color: isSelected ? 'white' : bgColor,
-                            }}>
-                              {p.page_number}
-                            </span>
-                          </div>
-                        )}
+                            {p.page_number}
+                          </span>
+                        </div>
                         {isSelected && (
                           <div style={{ position: 'absolute', top: '4px', right: '4px', width: '22px', height: '22px', borderRadius: '50%', background: COLORS.purple, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '0.7rem', fontWeight: 700, boxShadow: '0 2px 6px rgba(0,0,0,0.3)' }}>✓</div>
                         )}
