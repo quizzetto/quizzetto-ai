@@ -601,65 +601,71 @@ function AdminSettings() {
   const [migrationProgress, setMigrationProgress] = useState({ current: 0, total: 0, phase: '' })
   const [migrationResult, setMigrationResult] = useState(null)
   const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 
   const migrateExistingPages = async () => {
-    if (!confirm('Questa operazione genererà le domande per tutte le pagine che hanno testo estratto ma non hanno ancora domande, poi cancellerà il testo e le immagini. Procedere?')) return
+    if (!confirm('Genera le domande per le pagine con testo estratto. Procedere?')) return
     
     setMigrating(true)
     setMigrationResult(null)
     
-    // Find pages with extracted_text but no questions
-    const { data: pages } = await supabase.from('pages').select('*').not('extracted_text', 'is', null).is('questions', null)
+    // Refresh session first
+    await supabase.auth.refreshSession()
+    
+    // Find pages that need migration (have text but no questions)
+    const { data: pages } = await supabase.from('pages')
+      .select('*')
+      .not('extracted_text', 'is', null)
+      .or('questions.is.null,questions.eq.[]')
+      .order('page_number')
     
     if (!pages || pages.length === 0) {
-      // Also check pages with text that already have some questions but need cleanup
-      const { data: allPages } = await supabase.from('pages').select('*').not('extracted_text', 'is', null)
-      if (!allPages || allPages.length === 0) {
-        setMigrationResult({ success: 0, failed: 0, total: 0, message: 'Nessuna pagina da migrare.' })
-        setMigrating(false)
-        return
-      }
-      // These pages have text — generate questions if missing, then clean up
-      await processPages(allPages)
+      setMigrationResult({ success: 0, failed: 0, total: 0, message: 'Nessuna pagina da migrare. Tutte le pagine hanno già le domande o non hanno testo.' })
+      setMigrating(false)
       return
     }
     
-    await processPages(pages)
-  }
-
-  const processPages = async (pages) => {
     let success = 0, failed = 0
     
     for (let i = 0; i < pages.length; i++) {
       const page = pages[i]
-      setMigrationProgress({ current: i + 1, total: pages.length, phase: `Pagina ${page.page_number}` })
+      setMigrationProgress({ current: i + 1, total: pages.length, phase: `✏️ Pag. ${page.page_number} — generazione domande...` })
+      
+      // Refresh session every 5 pages to prevent timeout
+      if (i > 0 && i % 5 === 0) {
+        await supabase.auth.refreshSession()
+      }
       
       try {
-        // Generate questions if not already present
-        let questions = page.questions || []
-        if (questions.length === 0 && page.extracted_text) {
+        let questions = []
+        if (page.extracted_text) {
           questions = await generateQuestionsForPage(page.extracted_text, apiKey)
         }
         
         // Delete image from storage if exists
         if (page.image_url) {
           const fileName = page.image_url.split('/pages/')[1]
-          if (fileName) await supabase.storage.from('pages').remove([fileName])
+          if (fileName) {
+            try { await supabase.storage.from('pages').remove([fileName]) } catch (e) { console.warn('Image delete failed:', e) }
+          }
         }
         
-        // Update: save questions, clear text and image
+        // Save questions, clear text and image
         await supabase.from('pages').update({
-          questions: questions,
+          questions: questions.length > 0 ? questions : null,
           extracted_text: null,
           image_url: null,
         }).eq('id', page.id)
         
         success++
+        setMigrationProgress({ current: i + 1, total: pages.length, phase: `✅ Pag. ${page.page_number} — ${questions.length} domande generate` })
       } catch (err) {
         console.error('Migration failed for page', page.page_number, err)
         failed++
+        setMigrationProgress({ current: i + 1, total: pages.length, phase: `❌ Pag. ${page.page_number} — errore` })
       }
+      
+      // Small delay to prevent rate limiting
+      await new Promise(r => setTimeout(r, 500))
     }
     
     setMigrationResult({ success, failed, total: pages.length })
