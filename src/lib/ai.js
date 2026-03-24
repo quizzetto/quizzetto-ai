@@ -13,42 +13,28 @@ function getProposedCountForSinglePage(text) {
   return 10
 }
 
-// Accepts either a single text string or an array of page texts
+function getPoolCountForSinglePage(text) {
+  return getProposedCountForSinglePage(text) * 5
+}
+
 function getProposedCountFromTexts(texts) {
   if (!texts) return 10
   const textArray = Array.isArray(texts) ? texts : [texts]
   return textArray.reduce((sum, t) => sum + getProposedCountForSinglePage(t), 0)
 }
 
-function getQuestionsCountFromTexts(texts) {
-  // Pool generato: doppio delle domande proposte
-  return getProposedCountFromTexts(texts) * 2
-}
-
-// Legacy fixed count (for photo uploads where we don't have text yet)
 function getQuestionsCount(pageCount) {
   return 20 + Math.max(0, (pageCount - 1) * 10)
-}
-
-function shuffleOptions(quiz) {
-  quiz.questions = quiz.questions.map(q => {
-    // Create array of indices [0,1,2,3] and shuffle
-    const indices = [0, 1, 2, 3]
-    for (let i = indices.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [indices[i], indices[j]] = [indices[j], indices[i]]
-    }
-    // Rearrange options and update correct index
-    const newOptions = indices.map(i => q.options[i])
-    const newCorrect = indices.indexOf(q.correct)
-    return { ...q, options: newOptions, correct: newCorrect }
-  })
-  return quiz
 }
 
 export function getProposedCount(pageCount, texts) {
   if (texts) return getProposedCountFromTexts(texts)
   return 10 + Math.max(0, (pageCount - 1) * 5)
+}
+
+export function getProposedCountFromPool(questionsArrays) {
+  const totalPool = questionsArrays.reduce((sum, qs) => sum + (qs?.length || 0), 0)
+  return Math.max(3, Math.round(totalPool / 5))
 }
 
 function getDifficultyDistribution(total) {
@@ -58,17 +44,35 @@ function getDifficultyDistribution(total) {
   return { easy, medium, hard }
 }
 
+function shuffleSingleOptions(q) {
+  const indices = [0, 1, 2, 3]
+  for (let k = indices.length - 1; k > 0; k--) {
+    const j = Math.floor(Math.random() * (k + 1));
+    [indices[k], indices[j]] = [indices[j], indices[k]]
+  }
+  const newOptions = indices.map(idx => q.options[idx])
+  const newCorrect = indices.indexOf(q.correct)
+  return { ...q, options: newOptions, correct: newCorrect }
+}
+
+function shuffleOptions(quiz) {
+  quiz.questions = quiz.questions.map(q => shuffleSingleOptions(q))
+  return quiz
+}
+
 export function pickRandomQuestions(allQuestions, count = 10) {
-  if (allQuestions.length <= count) return [...allQuestions]
+  if (!allQuestions || allQuestions.length === 0) return []
   
-  // Shuffle using Fisher-Yates
   const shuffled = [...allQuestions]
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
   }
   
-  // Pick 'count' questions, trying to maintain difficulty balance
+  if (shuffled.length <= count) {
+    return shuffled.map((q, i) => shuffleSingleOptions({ ...q, id: i + 1 }))
+  }
+  
   const easy = shuffled.filter(q => q.difficulty === 'facile')
   const medium = shuffled.filter(q => q.difficulty === 'media')
   const hard = shuffled.filter(q => q.difficulty === 'difficile')
@@ -82,65 +86,28 @@ export function pickRandomQuestions(allQuestions, count = 10) {
   picked.push(...medium.slice(0, mediumCount))
   picked.push(...hard.slice(0, hardCount))
   
-  // Fill remaining if any category was short
   while (picked.length < count) {
     const remaining = shuffled.filter(q => !picked.includes(q))
     if (remaining.length === 0) break
     picked.push(remaining[0])
   }
   
-  // Re-assign IDs and shuffle options for each question
-  return picked.map((q, i) => {
-    // Force shuffle answer positions every time
-    const indices = [0, 1, 2, 3]
-    for (let k = indices.length - 1; k > 0; k--) {
-      const j = Math.floor(Math.random() * (k + 1));
-      [indices[k], indices[j]] = [indices[j], indices[k]]
-    }
-    const newOptions = indices.map(idx => q.options[idx])
-    const newCorrect = indices.indexOf(q.correct)
-    return { ...q, id: i + 1, options: newOptions, correct: newCorrect }
-  })
+  return picked.map((q, i) => shuffleSingleOptions({ ...q, id: i + 1 }))
 }
 
-export async function generateQuizFromText(contentText, topic, pageCount, apiKey, pageTexts) {
-  const totalQuestions = pageTexts ? getQuestionsCountFromTexts(pageTexts) : getQuestionsCount(pageCount)
-  const dist = getDifficultyDistribution(totalQuestions)
-
-  const response = await fetch(ANTHROPIC_API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true'
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 8000,
-      messages: [{
-        role: 'user',
-        content: `Sei un insegnante simpatico e paziente per bambini delle elementari (6-11 anni).
-
-Ecco il contenuto delle pagine di un libro scolastico sull'argomento "${topic}":
-
-${contentText}
-
-Genera un quiz basato su questo contenuto.
-
+const QUIZ_RULES = `
 REGOLE:
-- Genera esattamente ${totalQuestions} domande a risposta multipla
 - Ogni domanda deve avere 4 opzioni (A, B, C, D) di cui solo 1 corretta
-- Le prime ${dist.easy} domande devono essere facili (comprensione base)
-- Le successive ${dist.medium} domande di media difficoltà
-- Le ultime ${dist.hard} domande più impegnative (richiedono ragionamento)
-- Molte domande devono testare lo stesso concetto ma formulato in modo diverso
-- Usa un linguaggio semplice e adatto ai bambini
+- Distribuisci le difficoltà: 30% facili (comprensione base), 40% medie, 30% difficili (ragionamento)
+- Usa un linguaggio semplice e adatto ai bambini delle elementari
 - Ogni domanda deve avere una spiegazione chiara della risposta corretta
 - Varia il più possibile la formulazione delle domande
-- Basa le domande ESCLUSIVAMENTE sul testo scritto, NON fare domande su immagini, foto, illustrazioni, grafici o mappe presenti nella pagina
+- Basa le domande ESCLUSIVAMENTE sugli argomenti e le informazioni del testo, NON fare domande su immagini, foto, illustrazioni, grafici o mappe
 - Ignora completamente le descrizioni tra parentesi quadre [...] che si riferiscono a elementi visivi
-- Aggiungi 1 domanda di logica/ragionamento collegata all'argomento trattato (es: "Se... allora cosa succederebbe?")
+- NON citare MAI frasi del libro testualmente nelle domande o nelle risposte
+- Riformula SEMPRE i concetti con parole tue, come farebbe un insegnante
+- NON fare riferimento a "il libro", "la pagina", "il testo" nelle domande — formula le domande come domande di conoscenza generali sull'argomento
+- Aggiungi 1-2 domande di logica/ragionamento collegata all'argomento (es: "Se... allora cosa succederebbe?")
 
 REGOLE IMPORTANTI PER LE RISPOSTE:
 - TUTTE e 4 le opzioni devono avere una lunghezza SIMILE (stesso numero di parole circa)
@@ -151,11 +118,11 @@ REGOLE IMPORTANTI PER LE RISPOSTE:
 - Le risposte sbagliate devono sembrare vere a chi non ha studiato bene
 - Evita risposte assurde o chiaramente impossibili
 - Per le domande difficili, usa risposte sbagliate che contengono elementi parzialmente veri
-- OGNI opzione deve avere lo STESSO numero di parole della risposta corretta (differenza massima 2 parole). Se la corretta ha 4 parole, le sbagliate devono avere 3-5 parole. Se la corretta ha 10 parole, le sbagliate devono avere 8-12 parole. Questo è FONDAMENTALE.
+- OGNI opzione deve avere lo STESSO numero di parole della risposta corretta (differenza massima 2 parole). Questo è FONDAMENTALE.`
 
+const QUIZ_JSON_FORMAT = `
 Rispondi SOLO con un JSON valido (senza markdown, senza backtick) con questa struttura:
 {
-  "topic": "${topic}",
   "questions": [
     {
       "id": 1,
@@ -170,15 +137,69 @@ Rispondi SOLO con un JSON valido (senza markdown, senza backtick) con questa str
 
 Il campo "correct" è l'indice (0-3) dell'opzione corretta.
 Il campo "difficulty" può essere "facile", "media", "difficile".`
+
+// ─── PRE-GENERATE questions for a single page (admin upload) ───
+export async function generateQuestionsForPage(extractedText, apiKey) {
+  const poolSize = getPoolCountForSinglePage(extractedText)
+
+  const response = await fetch(ANTHROPIC_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 16000,
+      messages: [{
+        role: 'user',
+        content: `Sei un insegnante simpatico e paziente per bambini delle elementari (6-11 anni).
+
+Ecco il contenuto di una pagina di un libro scolastico:
+
+${extractedText}
+
+Genera esattamente ${poolSize} domande a risposta multipla su questo contenuto.
+Le domande devono coprire tutti gli argomenti presenti e testare la conoscenza in modi diversi.
+Ogni concetto deve essere verificato da più domande formulate in modo differente.
+${QUIZ_RULES}
+${QUIZ_JSON_FORMAT}`
       }]
     })
   })
 
   const data = await response.json()
   const text = data.content.filter(i => i.type === 'text').map(i => i.text).join('')
-  return shuffleOptions(JSON.parse(text.replace(/```json|```/g, '').trim()))
+  const parsed = JSON.parse(text.replace(/```json|```/g, '').trim())
+  return parsed.questions || []
 }
 
+// ─── Extract text from image (admin upload) ───
+export async function extractTextFromImage(file, apiKey) {
+  const base64 = await new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result.split(',')[1])
+    reader.onerror = () => reject(new Error('Errore lettura'))
+    reader.readAsDataURL(file)
+  })
+  const content = file.type === 'application/pdf'
+    ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } }
+    : { type: 'image', source: { type: 'base64', media_type: file.type || 'image/jpeg', data: base64 } }
+  const response = await fetch(ANTHROPIC_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001', max_tokens: 4000,
+      messages: [{ role: 'user', content: [content, { type: 'text', text: 'Estrai TUTTO il testo presente in questa pagina di un libro scolastico. Trascrivi fedelmente mantenendo la struttura. NON aggiungere commenti. Se ci sono immagini/grafici, descrivi brevemente tra parentesi quadre. Rispondi SOLO con il testo estratto.' }] }]
+    })
+  })
+  const data = await response.json()
+  return data.content.filter(i => i.type === 'text').map(i => i.text).join('')
+}
+
+// ─── GENERATE quiz from photo images (photo quiz, uses API live) ───
 export async function generateQuizFromImages(images, apiKey) {
   const imageContents = await Promise.all(
     images.map(async (file) => {
@@ -196,7 +217,6 @@ export async function generateQuizFromImages(images, apiKey) {
   )
 
   const totalQuestions = getQuestionsCount(images.length)
-  const dist = getDifficultyDistribution(totalQuestions)
 
   const response = await fetch(ANTHROPIC_API_URL, {
     method: 'POST',
@@ -208,7 +228,7 @@ export async function generateQuizFromImages(images, apiKey) {
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 8000,
+      max_tokens: 16000,
       messages: [{
         role: 'user',
         content: [
@@ -217,31 +237,10 @@ export async function generateQuizFromImages(images, apiKey) {
             type: 'text',
             text: `Sei un insegnante simpatico e paziente per bambini delle elementari (6-11 anni).
 
-Guarda attentamente le immagini di queste pagine di un libro scolastico e genera un quiz basato sul contenuto.
+Guarda attentamente le immagini di queste pagine di un libro scolastico e genera un quiz basato sul contenuto testuale.
 
-REGOLE:
-- Genera esattamente ${totalQuestions} domande a risposta multipla
-- Ogni domanda deve avere 4 opzioni (A, B, C, D) di cui solo 1 corretta
-- Le prime ${dist.easy} domande devono essere facili (comprensione base)
-- Le successive ${dist.medium} domande di media difficoltà  
-- Le ultime ${dist.hard} domande più impegnative (richiedono ragionamento)
-- Molte domande devono testare lo stesso concetto ma formulato in modo diverso
-- Usa un linguaggio semplice e adatto ai bambini
-- Ogni domanda deve avere una spiegazione chiara della risposta corretta
-- Varia il più possibile la formulazione delle domande
-- Basa le domande ESCLUSIVAMENTE sul testo scritto visibile nella pagina, NON fare domande su immagini, foto, illustrazioni, grafici o mappe
-- Aggiungi 1 domanda di logica/ragionamento collegata all'argomento trattato (es: "Se... allora cosa succederebbe?")
-
-REGOLE IMPORTANTI PER LE RISPOSTE:
-- TUTTE e 4 le opzioni devono avere una lunghezza SIMILE (stesso numero di parole circa)
-- Le risposte sbagliate devono essere PLAUSIBILI e credibili, non ovviamente errate
-- Le risposte sbagliate devono riguardare lo stesso argomento della domanda
-- NON mettere mai la risposta corretta sempre più lunga o più dettagliata delle altre
-- Mescola la posizione della risposta corretta (a volte A, a volte B, C o D)
-- Le risposte sbagliate devono sembrare vere a chi non ha studiato bene
-- Evita risposte assurde o chiaramente impossibili
-- Per le domande difficili, usa risposte sbagliate che contengono elementi parzialmente veri
-- OGNI opzione deve avere lo STESSO numero di parole della risposta corretta (differenza massima 2 parole). Se la corretta ha 4 parole, le sbagliate devono avere 3-5 parole. Se la corretta ha 10 parole, le sbagliate devono avere 8-12 parole. Questo è FONDAMENTALE.
+Genera esattamente ${totalQuestions} domande a risposta multipla.
+${QUIZ_RULES}
 
 Rispondi SOLO con un JSON valido (senza markdown, senza backtick) con questa struttura:
 {
@@ -266,7 +265,7 @@ Il campo "difficulty" può essere "facile", "media", "difficile".`
     })
   })
 
-  const data2 = await response.json()
-  const text2 = data2.content.filter(i => i.type === 'text').map(i => i.text).join('')
-  return shuffleOptions(JSON.parse(text2.replace(/```json|```/g, '').trim()))
+  const data = await response.json()
+  const text = data.content.filter(i => i.type === 'text').map(i => i.text).join('')
+  return shuffleOptions(JSON.parse(text.replace(/```json|```/g, '').trim()))
 }
