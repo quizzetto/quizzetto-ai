@@ -141,39 +141,63 @@ Il campo "difficulty" può essere "facile", "media", "difficile".`
 // ─── PRE-GENERATE questions for a single page (admin upload) ───
 export async function generateQuestionsForPage(extractedText, apiKey) {
   const poolSize = getPoolCountForSinglePage(extractedText)
-
-  const response = await fetch(ANTHROPIC_API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true'
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 16000,
-      messages: [{
-        role: 'user',
-        content: `Sei un insegnante simpatico e paziente per bambini delle elementari (6-11 anni).
+  
+  // Split into batches of max 15 questions per call to avoid truncation
+  const batchSize = 15
+  const batches = Math.ceil(poolSize / batchSize)
+  let allQuestions = []
+  
+  for (let b = 0; b < batches; b++) {
+    const batchCount = Math.min(batchSize, poolSize - (b * batchSize))
+    const batchNum = b + 1
+    
+    const response = await fetch(ANTHROPIC_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 8000,
+        messages: [{
+          role: 'user',
+          content: `Sei un insegnante simpatico e paziente per bambini delle elementari (6-11 anni).
 
 Ecco il contenuto di una pagina di un libro scolastico:
 
 ${extractedText}
 
-Genera esattamente ${poolSize} domande a risposta multipla su questo contenuto.
-Le domande devono coprire tutti gli argomenti presenti e testare la conoscenza in modi diversi.
-Ogni concetto deve essere verificato da più domande formulate in modo differente.
+Genera esattamente ${batchCount} domande a risposta multipla su questo contenuto.
+${batches > 1 ? `Questo è il blocco ${batchNum} di ${batches}. Genera domande DIVERSE dai blocchi precedenti, coprendo aspetti diversi dell'argomento.` : ''}
+Le domande devono coprire gli argomenti presenti e testare la conoscenza in modi diversi.
+Ogni concetto deve essere verificato da domande formulate in modo differente.
 ${QUIZ_RULES}
 ${QUIZ_JSON_FORMAT}`
-      }]
+        }]
+      })
     })
-  })
 
-  const data = await response.json()
-  const text = data.content.filter(i => i.type === 'text').map(i => i.text).join('')
-  const parsed = JSON.parse(text.replace(/```json|```/g, '').trim())
-  return parsed.questions || []
+    const data = await response.json()
+    const text = data.content.filter(i => i.type === 'text').map(i => i.text).join('')
+    
+    try {
+      const parsed = JSON.parse(text.replace(/```json|```/g, '').trim())
+      const questions = parsed.questions || []
+      // Re-number IDs
+      const numbered = questions.map((q, i) => ({ ...q, id: allQuestions.length + i + 1 }))
+      allQuestions.push(...numbered)
+    } catch (e) {
+      console.error('JSON parse error in batch', batchNum, e)
+    }
+    
+    // Small delay between batches
+    if (b < batches - 1) await new Promise(r => setTimeout(r, 300))
+  }
+  
+  return allQuestions
 }
 
 // ─── Extract text from image (admin upload) ───
