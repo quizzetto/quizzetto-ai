@@ -64,30 +64,24 @@ function AdminUsers() {
   const loadUsers = async () => {
     const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false })
     setUsers(data || [])
-    // Load quiz stats and page stats for each user
-    const { data: results } = await supabase.from('quiz_results').select('user_id, total_count, completed_at')
+    // Load quiz stats
+    const { data: results } = await supabase.from('quiz_results').select('user_id, completed_at')
     const stats = {}
-    const pageStats = {}
+    const todayStats = {}
     const lastSession = {}
+    const today = new Date().toISOString().split('T')[0]
     if (results) {
       results.forEach(r => {
         stats[r.user_id] = (stats[r.user_id] || 0) + 1
-        pageStats[r.user_id] = (pageStats[r.user_id] || 0) + (r.total_count || 0)
+        if (r.completed_at && r.completed_at.startsWith(today)) {
+          todayStats[r.user_id] = (todayStats[r.user_id] || 0) + 1
+        }
         if (!lastSession[r.user_id] || r.completed_at > lastSession[r.user_id]) {
           lastSession[r.user_id] = r.completed_at
         }
       })
     }
-    // Also count total pages from quizzes generated
-    const { data: quizzes } = await supabase.from('quizzes').select('user_id, page_start, page_end')
-    const totalPages = {}
-    if (quizzes) {
-      quizzes.forEach(q => {
-        const pages = q.page_end && q.page_start ? (q.page_end - q.page_start + 1) : 1
-        totalPages[q.user_id] = (totalPages[q.user_id] || 0) + pages
-      })
-    }
-    setQuizStats({ counts: stats, pages: totalPages, lastSession })
+    setQuizStats({ counts: stats, today: todayStats, lastSession })
     setLoading(false)
   }
   const toggleFreeAccess = async (userId, current) => { await supabase.from('profiles').update({ is_free_access: !current }).eq('id', userId); loadUsers() }
@@ -172,7 +166,7 @@ function AdminUsers() {
                 {u.email} · Registrato: {formatDateTime(u.created_at)}
               </p>
               <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.grayLight, margin: '0 0 0.2rem' }}>
-                📝 {quizStats.counts?.[u.id] || 0} quiz tot. · 📄 {quizStats.pages?.[u.id] || 0} pagine tot. · 📄 {u.daily_pages_used || 0}/{u.max_daily_pages || 20} oggi
+                📝 {quizStats.counts?.[u.id] || 0} quiz tot. · 📝 {quizStats.today?.[u.id] || 0} quiz oggi · 📷 {u.free_photo_used || 0} foto tot.{!u.has_paid && !u.is_free_access && !u.is_admin ? ` · 📷 ${Math.max(0, 3 - (u.free_photo_used || 0))}/3 foto gratis` : ''}
               </p>
               <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.grayLight, margin: '0 0 0.5rem' }}>
                 🕐 Ultima sessione: {quizStats.lastSession?.[u.id] ? formatDateTime(quizStats.lastSession[u.id]) : 'Mai'}
