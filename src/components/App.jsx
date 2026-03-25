@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { generateQuizFromImages, pickRandomQuestions, getProposedCount, getProposedCountFromPool } from '../lib/ai'
+import { sendQuizReport } from '../lib/email'
 import { COLORS, FONTS, btnPrimary, btnSuccess, btnPink, btnDanger, pressStyle, card } from '../lib/styles'
 import Header from './Header'
 import QuizPlay from './QuizPlay'
@@ -211,11 +212,26 @@ export default function App({ user, profile: initialProfile }) {
   const handleFinish = async (ans) => {
     setAnswers(ans)
     const correctCount = ans.filter(a => a.selected === a.correct).length
+    const percentage = Math.round((correctCount / ans.length) * 100)
     await supabase.from('quiz_results').insert({
       quiz_id: quiz.dbId || null, user_id: user.id, answers: ans, correct_count: correctCount,
-      total_count: ans.length, percentage: Math.round((correctCount / ans.length) * 100),
+      total_count: ans.length, percentage,
       timer_mode: timerSeconds > 0 ? `${timerSeconds}s` : 'off',
     })
+    
+    // Send email report if enabled
+    if (profile.notify_after_quiz) {
+      sendQuizReport({
+        parentEmail: profile.email || user.email,
+        childName: profile.child_name,
+        topic: quiz.topic,
+        correct: correctCount,
+        total: ans.length,
+        percentage,
+        timerMode: timerSeconds > 0 ? `${timerSeconds}s` : 'off',
+      })
+    }
+    
     setPhase(PHASES.RESULTS)
   }
 

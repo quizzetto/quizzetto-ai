@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { COLORS, FONTS, btnPrimary, btnSuccess, btnDanger, btnPink, pressStyle } from '../lib/styles'
 import { extractTextFromImage, generateQuestionsForPage } from '../lib/ai'
+import { sendWeeklyReport } from '../lib/email'
 
 function extractPageNumber(filename) {
   // Remove extension first
@@ -611,6 +612,79 @@ function AdminPages() {
   )
 }
 
+/* ─── SEND WEEKLY REPORTS ─── */
+function SendWeeklyReports() {
+  const [sending, setSending] = useState(false)
+  const [result, setResult] = useState(null)
+
+  const handleSend = async () => {
+    if (!confirm('Inviare il riepilogo settimanale a tutti i genitori con notifica attiva?')) return
+    setSending(true)
+    setResult(null)
+
+    // Get users with weekly notification enabled
+    const { data: users } = await supabase.from('profiles').select('*').eq('notify_weekly', true)
+    if (!users || users.length === 0) {
+      setResult({ sent: 0, message: 'Nessun utente ha attivato il riepilogo settimanale.' })
+      setSending(false)
+      return
+    }
+
+    // Get last 7 days of results
+    const weekAgo = new Date()
+    weekAgo.setDate(weekAgo.getDate() - 7)
+    const { data: results } = await supabase.from('quiz_results').select('*').gte('completed_at', weekAgo.toISOString())
+
+    let sent = 0
+    for (const user of users) {
+      const userResults = (results || []).filter(r => r.user_id === user.id)
+      
+      if (userResults.length === 0) continue
+
+      const quizCount = userResults.length
+      const avgPercentage = Math.round(userResults.reduce((sum, r) => sum + (r.percentage || 0), 0) / quizCount)
+      const bestPercentage = Math.max(...userResults.map(r => r.percentage || 0))
+
+      const detailLines = userResults.map(r => {
+        const date = new Date(r.completed_at).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' })
+        return `${date}: ${r.correct_count}/${r.total_count} (${r.percentage}%)`
+      })
+
+      await sendWeeklyReport({
+        parentEmail: user.email,
+        childName: user.child_name,
+        quizCount,
+        avgPercentage,
+        bestPercentage,
+        details: detailLines.join('\n'),
+      })
+      sent++
+      
+      await new Promise(r => setTimeout(r, 500))
+    }
+
+    setResult({ sent, total: users.length })
+    setSending(false)
+  }
+
+  return (
+    <div>
+      {result && (
+        <p style={{ fontFamily: FONTS.body, fontSize: '0.78rem', color: COLORS.green, marginBottom: '0.5rem' }}>
+          ✅ Inviati {result.sent} riepilog{result.sent === 1 ? 'o' : 'i'}{result.message ? ` — ${result.message}` : ''}
+        </p>
+      )}
+      {sending ? (
+        <p style={{ fontFamily: FONTS.body, fontSize: '0.78rem', color: COLORS.purple }}>📧 Invio in corso...</p>
+      ) : (
+        <button onClick={handleSend} style={{ fontSize: '0.8rem', padding: '0.5rem 1rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: COLORS.purple, color: 'white' }}>
+          📧 Invia riepiloghi ora
+        </button>
+      )}
+    </div>
+  )
+}
+
 /* ─── ADMIN SETTINGS ─── */
 function AdminSettings() {
   const [migrating, setMigrating] = useState(false)
@@ -722,6 +796,15 @@ function AdminSettings() {
             🔄 Avvia migrazione
           </button>
         )}
+      </div>
+
+      {/* Weekly report */}
+      <div style={{ padding: '0.85rem', background: COLORS.bgPurple, borderRadius: '12px', marginBottom: '1rem' }}>
+        <p style={{ fontFamily: FONTS.heading, fontSize: '0.9rem', color: COLORS.purple, marginBottom: '0.4rem' }}>📊 Riepilogo settimanale</p>
+        <p style={{ fontFamily: FONTS.body, fontSize: '0.78rem', color: COLORS.gray, marginBottom: '0.6rem', lineHeight: 1.5 }}>
+          Invia il riepilogo settimanale a tutti i genitori che hanno attivato la notifica.
+        </p>
+        <SendWeeklyReports />
       </div>
     </div>
   )
