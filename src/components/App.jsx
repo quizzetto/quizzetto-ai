@@ -251,7 +251,7 @@ export default function App({ user, profile: initialProfile }) {
 
   const goHome = () => {
     setQuiz(null); setAnswers([]); setError(null); setSelectedSubject(null); setSelectedPages([]); setAvailablePages([]); setSectionFilter(null); setAvailableSections([])
-    loadSavedQuizzes(); loadPageLimit(); loadAccess(); setPhase(PHASES.HOME)
+    loadSavedQuizzes(); loadPageLimit(); loadAccess(); refreshProfile(); setPhase(PHASES.HOME)
   }
 
   const handleLogout = async () => { await supabase.auth.signOut() }
