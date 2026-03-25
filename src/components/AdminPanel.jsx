@@ -36,13 +36,17 @@ function AdminUsers() {
     const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false })
     setUsers(data || [])
     // Load quiz stats and page stats for each user
-    const { data: results } = await supabase.from('quiz_results').select('user_id, total_count')
+    const { data: results } = await supabase.from('quiz_results').select('user_id, total_count, created_at')
     const stats = {}
     const pageStats = {}
+    const lastSession = {}
     if (results) {
       results.forEach(r => {
         stats[r.user_id] = (stats[r.user_id] || 0) + 1
         pageStats[r.user_id] = (pageStats[r.user_id] || 0) + (r.total_count || 0)
+        if (!lastSession[r.user_id] || r.created_at > lastSession[r.user_id]) {
+          lastSession[r.user_id] = r.created_at
+        }
       })
     }
     // Also count total pages from quizzes generated
@@ -54,13 +58,21 @@ function AdminUsers() {
         totalPages[q.user_id] = (totalPages[q.user_id] || 0) + pages
       })
     }
-    setQuizStats({ counts: stats, pages: totalPages })
+    setQuizStats({ counts: stats, pages: totalPages, lastSession })
     setLoading(false)
   }
   const toggleFreeAccess = async (userId, current) => { await supabase.from('profiles').update({ is_free_access: !current }).eq('id', userId); loadUsers() }
   const activatePaid = async (userId) => { await supabase.from('profiles').update({ has_paid: true, paid_until: getNextMonthDate(new Date()) }).eq('id', userId); loadUsers() }
   const deactivatePaid = async (userId) => { await supabase.from('profiles').update({ has_paid: false, paid_until: null }).eq('id', userId); loadUsers() }
   const toggleActive = async (userId, current) => { await supabase.from('profiles').update({ is_active: !current }).eq('id', userId); loadUsers() }
+  const deleteUser = async (userId, name) => {
+    if (!confirm(`Eliminare definitivamente l'utente "${name}"? Questa azione non è reversibile.`)) return
+    if (!confirm(`Sei sicuro? Verranno eliminati anche tutti i quiz e risultati di "${name}".`)) return
+    await supabase.from('quiz_results').delete().eq('user_id', userId)
+    await supabase.from('quizzes').delete().eq('user_id', userId)
+    await supabase.from('profiles').delete().eq('id', userId)
+    loadUsers()
+  }
   const formatDate = (d) => d ? new Date(d).toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' }) : ''
   const formatDateTime = (d) => d ? new Date(d).toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''
   const isExpired = (d) => d ? new Date(d) < new Date() : false
@@ -112,8 +124,11 @@ function AdminUsers() {
               <p style={{ fontFamily: FONTS.body, fontSize: '0.75rem', color: COLORS.grayLight, margin: '0 0 0.2rem' }}>
                 {u.email} · Registrato: {formatDateTime(u.created_at)}
               </p>
-              <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.grayLight, margin: '0 0 0.5rem' }}>
+              <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.grayLight, margin: '0 0 0.2rem' }}>
                 📝 {quizStats.counts?.[u.id] || 0} quiz tot. · 📄 {quizStats.pages?.[u.id] || 0} pagine tot. · 📄 {u.daily_pages_used || 0}/{u.max_daily_pages || 20} oggi
+              </p>
+              <p style={{ fontFamily: FONTS.body, fontSize: '0.72rem', color: COLORS.grayLight, margin: '0 0 0.5rem' }}>
+                🕐 Ultima sessione: {quizStats.lastSession?.[u.id] ? formatDateTime(quizStats.lastSession[u.id]) : 'Mai'}
               </p>
               
               {/* Edit form */}
@@ -147,6 +162,7 @@ function AdminUsers() {
                     <button onClick={() => deactivatePaid(u.id)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.5rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: COLORS.purple, color: 'white' }}>✓ Pagato</button>
                   )}
                   <button onClick={() => toggleActive(u.id, u.is_active)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.5rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: u.is_active ? COLORS.grayBorder : COLORS.red, color: u.is_active ? COLORS.gray : 'white' }}>{u.is_active ? 'Disattiva' : 'Riattiva'}</button>
+                  <button onClick={() => deleteUser(u.id, u.child_name)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.5rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: COLORS.red, color: 'white' }}>🗑️ Elimina</button>
                 </div>
               )}
             </div>
