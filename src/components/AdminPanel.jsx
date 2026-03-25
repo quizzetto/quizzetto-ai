@@ -64,6 +64,22 @@ function AdminUsers() {
   }
   const toggleFreeAccess = async (userId, current) => { await supabase.from('profiles').update({ is_free_access: !current }).eq('id', userId); loadUsers() }
   const activatePaid = async (userId) => { await supabase.from('profiles').update({ has_paid: true, paid_until: getNextMonthDate(new Date()) }).eq('id', userId); loadUsers() }
+  const extend30days = async (userId, currentPaidUntil) => {
+    const baseDate = currentPaidUntil && new Date(currentPaidUntil) > new Date() ? new Date(currentPaidUntil) : new Date()
+    await supabase.from('profiles').update({ has_paid: true, paid_until: getNextMonthDate(baseDate) }).eq('id', userId); loadUsers()
+  }
+  const remove30days = async (userId, currentPaidUntil) => {
+    if (!currentPaidUntil) return
+    const d = new Date(currentPaidUntil)
+    d.setMonth(d.getMonth() - 1)
+    // If the new date is in the past, deactivate payment
+    if (d < new Date()) {
+      await supabase.from('profiles').update({ has_paid: false, paid_until: null }).eq('id', userId)
+    } else {
+      await supabase.from('profiles').update({ paid_until: d.toISOString().split('T')[0] }).eq('id', userId)
+    }
+    loadUsers()
+  }
   const deactivatePaid = async (userId) => { await supabase.from('profiles').update({ has_paid: false, paid_until: null }).eq('id', userId); loadUsers() }
   const toggleActive = async (userId, current) => { await supabase.from('profiles').update({ is_active: !current }).eq('id', userId); loadUsers() }
   const deleteUser = async (userId, name) => {
@@ -160,7 +176,14 @@ function AdminUsers() {
                   {(!u.has_paid || expired) ? (
                     <button onClick={() => activatePaid(u.id)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.5rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: COLORS.purple, color: 'white' }}>{expired ? '🔄 Rinnova' : '💳 Attiva'}</button>
                   ) : (
-                    <button onClick={() => deactivatePaid(u.id)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.5rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: COLORS.purple, color: 'white' }}>✓ Pagato</button>
+                    <>
+                      <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center', background: COLORS.bgPurple, borderRadius: '8px', padding: '0.15rem' }}>
+                        <button onClick={() => remove30days(u.id, u.paid_until)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.4rem', borderRadius: '6px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: COLORS.orange, color: 'white', fontWeight: 600 }}>-30</button>
+                        <span style={{ fontFamily: FONTS.body, fontSize: '0.6rem', color: COLORS.gray, padding: '0 0.15rem' }}>gg</span>
+                        <button onClick={() => extend30days(u.id, u.paid_until)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.4rem', borderRadius: '6px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: COLORS.green, color: 'white', fontWeight: 600 }}>+30</button>
+                      </div>
+                      <button onClick={() => deactivatePaid(u.id)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.5rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: COLORS.grayBorder, color: COLORS.gray }}>✓ Pagato</button>
+                    </>
                   )}
                   <button onClick={() => toggleActive(u.id, u.is_active)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.5rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: u.is_active ? COLORS.grayBorder : COLORS.red, color: u.is_active ? COLORS.gray : 'white' }}>{u.is_active ? 'Disattiva' : 'Riattiva'}</button>
                   <button onClick={() => deleteUser(u.id, u.child_name)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.5rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: COLORS.red, color: 'white' }}>🗑️ Elimina</button>
