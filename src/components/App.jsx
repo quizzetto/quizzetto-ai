@@ -281,9 +281,21 @@ export default function App({ user, profile: initialProfile }) {
       </button>
 
       <button onClick={() => setPhase(PHASES.UPLOAD)} {...pressStyle}
-        style={{ ...btnSuccess, width: '100%', padding: '0.85rem', fontSize: '0.95rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+        style={{ ...btnSuccess, width: '100%', padding: '0.85rem', fontSize: '0.95rem', marginBottom: '0.65rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
         📷 Quiz da foto
       </button>
+
+      {/* Contact button */}
+      <a href={`mailto:${import.meta.env.VITE_CONTACT_EMAIL || ''}`}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+          marginBottom: '1.25rem', padding: '0.65rem', borderRadius: '12px',
+          border: `1.5px solid ${COLORS.grayBorder}`, background: 'white',
+          fontFamily: FONTS.body, fontSize: '0.82rem', color: COLORS.gray,
+          textDecoration: 'none', cursor: 'pointer',
+        }}>
+        ✉️ Contatta lo sviluppatore
+      </a>
 
       {savedQuizzes.length > 0 && (
         <div style={{ textAlign: 'left' }}>
@@ -302,18 +314,6 @@ export default function App({ user, profile: initialProfile }) {
           </div>
         </div>
       )}
-
-      {/* Contact button */}
-      <a href={`mailto:${import.meta.env.VITE_CONTACT_EMAIL || ''}`}
-        style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
-          marginTop: '1.25rem', padding: '0.65rem', borderRadius: '12px',
-          border: `1.5px solid ${COLORS.grayBorder}`, background: 'white',
-          fontFamily: FONTS.body, fontSize: '0.82rem', color: COLORS.gray,
-          textDecoration: 'none', cursor: 'pointer',
-        }}>
-        ✉️ Contatta lo sviluppatore
-      </a>
     </div>
   )
 
