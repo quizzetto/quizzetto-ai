@@ -108,6 +108,8 @@ REGOLE:
 - Riformula SEMPRE i concetti con parole tue, come farebbe un insegnante
 - NON fare riferimento a "il libro", "la pagina", "il testo" nelle domande — formula le domande come domande di conoscenza generali sull'argomento
 - Aggiungi 1-2 domande di logica/ragionamento collegata all'argomento (es: "Se... allora cosa succederebbe?")
+- NON creare MAI domande che contengono già la risposta nel testo della domanda (es: "Quanti sono i 5 continenti?" è VIETATO perché il numero è già nella domanda)
+- NON creare domande banali o ovvie — ogni domanda deve richiedere di aver studiato l'argomento per rispondere correttamente
 
 REGOLE IMPORTANTI PER LE RISPOSTE:
 - TUTTE e 4 le opzioni devono avere una lunghezza SIMILE (stesso numero di parole circa)
