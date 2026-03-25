@@ -216,9 +216,6 @@ export default function App({ user, profile: initialProfile }) {
       total_count: ans.length, percentage: Math.round((correctCount / ans.length) * 100),
       timer_mode: timerSeconds > 0 ? `${timerSeconds}s` : 'off',
     })
-      total_count: ans.length, percentage: Math.round((correctCount / ans.length) * 100),
-      timer_mode: timerSeconds > 0 ? `${timerSeconds}s` : 'off',
-    })
     setPhase(PHASES.RESULTS)
   }
 
