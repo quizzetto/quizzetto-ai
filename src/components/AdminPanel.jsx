@@ -36,7 +36,7 @@ function AdminUsers() {
     const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false })
     setUsers(data || [])
     // Load quiz stats and page stats for each user
-    const { data: results } = await supabase.from('quiz_results').select('user_id, total_count, created_at')
+    const { data: results } = await supabase.from('quiz_results').select('user_id, total_count, completed_at')
     const stats = {}
     const pageStats = {}
     const lastSession = {}
@@ -44,8 +44,8 @@ function AdminUsers() {
       results.forEach(r => {
         stats[r.user_id] = (stats[r.user_id] || 0) + 1
         pageStats[r.user_id] = (pageStats[r.user_id] || 0) + (r.total_count || 0)
-        if (!lastSession[r.user_id] || r.created_at > lastSession[r.user_id]) {
-          lastSession[r.user_id] = r.created_at
+        if (!lastSession[r.user_id] || r.completed_at > lastSession[r.user_id]) {
+          lastSession[r.user_id] = r.completed_at
         }
       })
     }
