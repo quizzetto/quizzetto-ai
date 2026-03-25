@@ -25,6 +25,14 @@ function getNextMonthDate(fromDate) {
   return new Date(nextMonth.getFullYear(), nextMonth.getMonth(), Math.min(day, lastDayNextMonth)).toISOString().split('T')[0]
 }
 
+function getPrevMonthDate(fromDate) {
+  const d = new Date(fromDate)
+  const day = d.getDate()
+  const prevMonth = new Date(d.getFullYear(), d.getMonth() - 1, 1)
+  const lastDayPrevMonth = new Date(prevMonth.getFullYear(), prevMonth.getMonth() + 1, 0).getDate()
+  return new Date(prevMonth.getFullYear(), prevMonth.getMonth(), Math.min(day, lastDayPrevMonth)).toISOString().split('T')[0]
+}
+
 /* ─── ADMIN USERS ─── */
 function AdminUsers() {
   const [users, setUsers] = useState([])
@@ -70,13 +78,11 @@ function AdminUsers() {
   }
   const remove30days = async (userId, currentPaidUntil) => {
     if (!currentPaidUntil) return
-    const d = new Date(currentPaidUntil)
-    d.setMonth(d.getMonth() - 1)
-    // If the new date is in the past, deactivate payment
-    if (d < new Date()) {
+    const newDate = getPrevMonthDate(new Date(currentPaidUntil))
+    if (new Date(newDate) < new Date()) {
       await supabase.from('profiles').update({ has_paid: false, paid_until: null }).eq('id', userId)
     } else {
-      await supabase.from('profiles').update({ paid_until: d.toISOString().split('T')[0] }).eq('id', userId)
+      await supabase.from('profiles').update({ paid_until: newDate }).eq('id', userId)
     }
     loadUsers()
   }
@@ -178,9 +184,9 @@ function AdminUsers() {
                   ) : (
                     <>
                       <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center', background: COLORS.bgPurple, borderRadius: '8px', padding: '0.15rem' }}>
-                        <button onClick={() => remove30days(u.id, u.paid_until)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.4rem', borderRadius: '6px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: COLORS.orange, color: 'white', fontWeight: 600 }}>-30</button>
-                        <span style={{ fontFamily: FONTS.body, fontSize: '0.6rem', color: COLORS.gray, padding: '0 0.15rem' }}>gg</span>
-                        <button onClick={() => extend30days(u.id, u.paid_until)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.4rem', borderRadius: '6px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: COLORS.green, color: 'white', fontWeight: 600 }}>+30</button>
+                        <button onClick={() => remove30days(u.id, u.paid_until)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.4rem', borderRadius: '6px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: COLORS.orange, color: 'white', fontWeight: 600 }}>−1</button>
+                        <span style={{ fontFamily: FONTS.body, fontSize: '0.6rem', color: COLORS.gray, padding: '0 0.1rem' }}>mese</span>
+                        <button onClick={() => extend30days(u.id, u.paid_until)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.4rem', borderRadius: '6px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: COLORS.green, color: 'white', fontWeight: 600 }}>+1</button>
                       </div>
                       <button onClick={() => deactivatePaid(u.id)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.5rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: FONTS.body, background: COLORS.grayBorder, color: COLORS.gray }}>✓ Pagato</button>
                     </>
