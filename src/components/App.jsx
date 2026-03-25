@@ -147,10 +147,15 @@ export default function App({ user, profile: initialProfile }) {
       return
     }
 
-    // Check access (free sessions)
+    // Check if user is active
     const freshAccess = await supabase.rpc('check_user_access', { p_user_id: user.id })
     setAccess(freshAccess.data)
-    if (freshAccess.data?.needs_payment) { setPhase(PHASES.PAYMENT); return }
+    
+    // Check page session limit (10 free, then payment)
+    const { data: prof } = await supabase.from('profiles').select('free_sessions_used, has_paid, is_free_access, is_admin').eq('id', user.id).single()
+    if (!prof.has_paid && !prof.is_free_access && !prof.is_admin && (prof.free_sessions_used || 0) >= 10) {
+      setPhase(PHASES.PAYMENT); return
+    }
 
     // Calculate proposed count from pool
     const questionsArrays = selectedPages.map(p => p.questions || [])
@@ -159,9 +164,9 @@ export default function App({ user, profile: initialProfile }) {
     
     const topic = `${selectedSubject?.name} - pag. ${selectedPages.map(p => p.page_number).join(', ')}`
     
-    // Update session count (no page count since no API is used)
+    // Update session count
     await supabase.from('profiles').update({
-      free_sessions_used: (access?.free_sessions_used || 0) + 1,
+      free_sessions_used: (prof.free_sessions_used || 0) + 1,
     }).eq('id', user.id)
 
     setQuiz({
@@ -174,7 +179,12 @@ export default function App({ user, profile: initialProfile }) {
   }
 
   const handleGenerateFromImages = async (files) => {
-    if (!(await checkCanGenerate(files.length))) return
+    // Check photo session limit (3 free, then payment)
+    const { data: prof } = await supabase.from('profiles').select('free_photo_used, has_paid, is_free_access, is_admin').eq('id', user.id).single()
+    if (!prof.has_paid && !prof.is_free_access && !prof.is_admin && (prof.free_photo_used || 0) >= 3) {
+      setPhase(PHASES.PAYMENT); return
+    }
+    
     setPhase(PHASES.LOADING); setError(null)
     const msgTimer = setInterval(() => setLoadingMsgIdx(p => (p + 1) % loadingMessages.length), 2500)
 
@@ -184,10 +194,9 @@ export default function App({ user, profile: initialProfile }) {
         user_id: user.id, topic: quizData.topic, questions: quizData.questions, source_type: 'photo',
       }).select().single()
 
-      const { data: current } = await supabase.from('profiles').select('daily_pages_used, free_sessions_used').eq('id', user.id).single()
       await supabase.from('profiles').update({
-        daily_pages_used: (current?.daily_pages_used || 0) + files.length,
-        free_sessions_used: (access?.free_sessions_used || 0) + 1,
+        free_photo_used: (prof.free_photo_used || 0) + 1,
+        daily_pages_used: (prof.daily_pages_used || 0) + files.length,
       }).eq('id', user.id)
 
       quizData.dbId = saved?.id
@@ -267,9 +276,11 @@ export default function App({ user, profile: initialProfile }) {
 
       {pageLimit && <p style={{ fontFamily: FONTS.body, fontSize: '0.78rem', color: COLORS.grayLight, marginBottom: '1rem' }}>Pagine disponibili oggi: {pageLimit.remaining}/{pageLimit.max}</p>}
 
-      {access && !access.has_paid && !access.is_free_access && !access.is_admin && (
+      {!profile.has_paid && !profile.is_free_access && !profile.is_admin && (
         <div style={{ padding: '0.5rem 0.75rem', background: COLORS.bgYellow, borderRadius: '10px', marginBottom: '1rem' }}>
-          <p style={{ fontFamily: FONTS.body, fontSize: '0.8rem', color: '#e67e22', margin: 0 }}>Sessioni gratuite: {access.max_free_sessions - access.free_sessions_used} di {access.max_free_sessions} rimaste</p>
+          <p style={{ fontFamily: FONTS.body, fontSize: '0.8rem', color: '#e67e22', margin: 0 }}>
+            📖 Quiz libro: {Math.max(0, 10 - (profile.free_sessions_used || 0))}/10 gratuiti · 📷 Quiz foto: {Math.max(0, 3 - (profile.free_photo_used || 0))}/3 gratuiti
+          </p>
         </div>
       )}
 

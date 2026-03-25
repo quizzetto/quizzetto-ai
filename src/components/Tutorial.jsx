@@ -77,7 +77,7 @@ const tutorialSteps = [
   {
     emoji: '👨‍👩‍👧',
     title: 'Informazioni per i genitori',
-    description: 'I primi 3 quiz sono gratuiti. Dopo è possibile attivare l\'abbonamento a soli 3€/mese per quiz illimitati su tutte le materie.',
+    description: 'I quiz dalle pagine del libro hanno 10 sessioni gratuite, i quiz da foto 3 sessioni gratuite. Dopo è possibile attivare l\'abbonamento a soli 2€/mese per quiz illimitati su tutte le materie.',
     target: 'genitore',
   },
   {

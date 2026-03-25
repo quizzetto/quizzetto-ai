@@ -5,9 +5,9 @@ export default function PaymentWall({ onBack }) {
   
   // Use PayPal.me if it looks like a username, otherwise use email payment link
   const paypalLink = paypalEmail.includes('@')
-    ? `https://paypal.me/${paypalEmail}?amount=3&currency_code=EUR`
+    ? `https://paypal.me/${paypalEmail}?amount=2&currency_code=EUR`
     : paypalEmail
-    ? `https://paypal.me/${paypalEmail}/3EUR`
+    ? `https://paypal.me/${paypalEmail}/2EUR`
     : '#'
 
   return (
@@ -29,7 +29,7 @@ export default function PaymentWall({ onBack }) {
         marginBottom: '1.5rem',
       }}>
         <p style={{ fontFamily: FONTS.heading, fontSize: '2rem', color: COLORS.purple, margin: '0 0 0.2rem' }}>
-          3€<span style={{ fontSize: '1rem', color: COLORS.gray }}>/mese</span>
+          2€<span style={{ fontSize: '1rem', color: COLORS.gray }}>/mese</span>
         </p>
         <div style={{ fontFamily: FONTS.body, fontSize: '0.85rem', color: COLORS.gray, lineHeight: 1.8 }}>
           ✅ Quiz illimitati su tutte le materie<br/>
@@ -62,7 +62,7 @@ export default function PaymentWall({ onBack }) {
           boxSizing: 'border-box',
         }}
       >
-        💳 Paga con PayPal - 3€
+        💳 Paga con PayPal - 2€
       </a>
 
       <p style={{ fontFamily: FONTS.body, fontSize: '0.8rem', color: COLORS.grayLight, marginBottom: '1rem', lineHeight: 1.4 }}>
