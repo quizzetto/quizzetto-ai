@@ -18,19 +18,39 @@ function extractPageNumber(filename) {
 }
 
 function getNextMonthDate(fromDate) {
-  const d = new Date(fromDate)
-  const day = d.getDate()
-  const nextMonth = new Date(d.getFullYear(), d.getMonth() + 1, 1)
-  const lastDayNextMonth = new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 0).getDate()
-  return new Date(nextMonth.getFullYear(), nextMonth.getMonth(), Math.min(day, lastDayNextMonth)).toISOString().split('T')[0]
+  const d = typeof fromDate === 'string' ? fromDate.split('T')[0].split('-') : null
+  let year, month, day
+  if (d && d.length === 3) {
+    year = parseInt(d[0]); month = parseInt(d[1]) - 1; day = parseInt(d[2])
+  } else {
+    const dt = new Date(fromDate)
+    year = dt.getFullYear(); month = dt.getMonth(); day = dt.getDate()
+  }
+  // Next month
+  let newMonth = month + 1
+  let newYear = year
+  if (newMonth > 11) { newMonth = 0; newYear++ }
+  const lastDay = new Date(newYear, newMonth + 1, 0).getDate()
+  const newDay = Math.min(day, lastDay)
+  return `${newYear}-${String(newMonth + 1).padStart(2, '0')}-${String(newDay).padStart(2, '0')}`
 }
 
 function getPrevMonthDate(fromDate) {
-  const d = new Date(fromDate)
-  const day = d.getDate()
-  const prevMonth = new Date(d.getFullYear(), d.getMonth() - 1, 1)
-  const lastDayPrevMonth = new Date(prevMonth.getFullYear(), prevMonth.getMonth() + 1, 0).getDate()
-  return new Date(prevMonth.getFullYear(), prevMonth.getMonth(), Math.min(day, lastDayPrevMonth)).toISOString().split('T')[0]
+  const d = typeof fromDate === 'string' ? fromDate.split('T')[0].split('-') : null
+  let year, month, day
+  if (d && d.length === 3) {
+    year = parseInt(d[0]); month = parseInt(d[1]) - 1; day = parseInt(d[2])
+  } else {
+    const dt = new Date(fromDate)
+    year = dt.getFullYear(); month = dt.getMonth(); day = dt.getDate()
+  }
+  // Prev month
+  let newMonth = month - 1
+  let newYear = year
+  if (newMonth < 0) { newMonth = 11; newYear-- }
+  const lastDay = new Date(newYear, newMonth + 1, 0).getDate()
+  const newDay = Math.min(day, lastDay)
+  return `${newYear}-${String(newMonth + 1).padStart(2, '0')}-${String(newDay).padStart(2, '0')}`
 }
 
 /* ─── ADMIN USERS ─── */
@@ -71,9 +91,13 @@ function AdminUsers() {
     setLoading(false)
   }
   const toggleFreeAccess = async (userId, current) => { await supabase.from('profiles').update({ is_free_access: !current }).eq('id', userId); loadUsers() }
-  const activatePaid = async (userId) => { await supabase.from('profiles').update({ has_paid: true, paid_until: getNextMonthDate(new Date()) }).eq('id', userId); loadUsers() }
+  const activatePaid = async (userId) => {
+    const today = new Date()
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+    await supabase.from('profiles').update({ has_paid: true, paid_until: getNextMonthDate(todayStr) }).eq('id', userId); loadUsers()
+  }
   const extend30days = async (userId, currentPaidUntil) => {
-    const baseDate = currentPaidUntil && new Date(currentPaidUntil) > new Date() ? new Date(currentPaidUntil) : new Date()
+    const baseDate = currentPaidUntil && currentPaidUntil > new Date().toISOString().split('T')[0] ? currentPaidUntil : `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`
     await supabase.from('profiles').update({ has_paid: true, paid_until: getNextMonthDate(baseDate) }).eq('id', userId); loadUsers()
   }
   const remove30days = async (userId, currentPaidUntil) => {
