@@ -212,7 +212,10 @@ export default function App({ user, profile: initialProfile }) {
     setAnswers(ans)
     const correctCount = ans.filter(a => a.selected === a.correct).length
     await supabase.from('quiz_results').insert({
-      quiz_id: quiz.dbId, user_id: user.id, answers: ans, correct_count: correctCount,
+      quiz_id: quiz.dbId || null, user_id: user.id, answers: ans, correct_count: correctCount,
+      total_count: ans.length, percentage: Math.round((correctCount / ans.length) * 100),
+      timer_mode: timerSeconds > 0 ? `${timerSeconds}s` : 'off',
+    })
       total_count: ans.length, percentage: Math.round((correctCount / ans.length) * 100),
       timer_mode: timerSeconds > 0 ? `${timerSeconds}s` : 'off',
     })
