@@ -77,7 +77,7 @@ const tutorialSteps = [
   {
     emoji: '👨‍👩‍👧',
     title: 'Informazioni per i genitori',
-    description: 'I quiz dalle pagine del libro hanno 10 sessioni gratuite, i quiz da foto 3 sessioni gratuite. Dopo è possibile attivare l\'abbonamento a soli 2€/mese per quiz illimitati su tutte le materie.',
+    description: 'Quizzetto utilizza un\'intelligenza artificiale avanzata per creare domande sempre diverse e stimolanti. I quiz dalle pagine del libro hanno 10 sessioni gratuite, i quiz da foto 3 sessioni gratuite. L\'abbonamento di 1,50€/mese aiuta a sostenere questi costi e a migliorare continuamente l\'esperienza di studio.',
     target: 'genitore',
   },
   {
